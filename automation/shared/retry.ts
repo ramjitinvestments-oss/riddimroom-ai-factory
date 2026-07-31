@@ -1,8 +1,8 @@
 /**
- * Generic retry-with-exponential-backoff, scoped to `automation/ai` for
- * now. Printify and Shopify will likely want the same behavior later;
- * this stays local until a second module actually needs it, at which
- * point it's a promotion to `automation/shared`, not a guess made now.
+ * Generic retry-with-exponential-backoff. Originally scoped to
+ * `automation/ai`; promoted here once `automation/printify` needed the
+ * identical behavior — platform modules aren't allowed to import from
+ * each other, so shared retry logic belongs in `automation/shared`.
  */
 
 export interface RetryOptions {

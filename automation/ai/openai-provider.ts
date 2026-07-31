@@ -10,7 +10,7 @@ import { Logger } from "../shared/logger.ts";
 import { err, ok, type Result } from "../shared/result.ts";
 import { buildTShirtPrompt } from "./prompt.ts";
 import { readPngDimensions } from "./png.ts";
-import { withRetry } from "./retry.ts";
+import { withRetry } from "../shared/retry.ts";
 import type {
   ImageGenerationProvider,
   ImageGenerationRequest,

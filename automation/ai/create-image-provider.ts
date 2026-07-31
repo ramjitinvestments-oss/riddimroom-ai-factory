@@ -11,6 +11,7 @@ import { ConfigError } from "../shared/errors.ts";
 import type { Logger } from "../shared/logger.ts";
 import { err, ok, type Result } from "../shared/result.ts";
 import { DryRunImageProvider } from "./dry-run-provider.ts";
+import { parseIntWithFallback } from "../shared/env-helpers.ts";
 import { OpenAiImageProvider } from "./openai-provider.ts";
 import type { ImageGenerationProvider } from "./types.ts";
 
@@ -64,12 +65,4 @@ export function createImageProvider(
       ...(options.fetchImpl !== undefined ? { fetchImpl: options.fetchImpl } : {}),
     }),
   );
-}
-
-function parseIntWithFallback(value: string | undefined, fallback: number): number {
-  if (value === undefined) {
-    return fallback;
-  }
-  const parsed = Number.parseInt(value, 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }

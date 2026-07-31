@@ -106,17 +106,21 @@ inlined into the message. `config.ts`'s `redact` (the low-level masking
 function shared with `redactSecrets`) is re-exported from `config.ts` for
 existing callers.
 
-## MVP mode
+## MVP mode / LAUNCH MODE
 
 Infrastructure work (an event bus was next in line) was paused in favor of
-shipping the first products: Result/errors/config/logging above are
-frozen as "sufficient foundation," and everything past this point is
-built only as far as the shirt pipeline (generate → prepare → mock up →
-approve → Printify → Shopify → verify) actually needs. No additional
-shared primitives get added speculatively; if Printify or Shopify later
-need something AI already built for itself (e.g. `automation/ai/retry.ts`),
-that's a promotion to `automation/shared` made at that point, not a guess
-made now.
+shipping the first products: Result/errors/config/logging are frozen as
+"sufficient foundation," and everything since is built only as far as
+the shirt pipeline (generate → prepare → product copy → approve →
+Printify → Shopify → verify) actually needs. No mockup-generation stage
+was built — the launch pipeline definition doesn't call for one; the
+print-ready artwork itself is used as the product image on both
+platforms. No additional shared primitives get added speculatively: when
+`automation/printify` needed the exact same retry/backoff logic and env
+helpers `automation/ai` had already built for itself, those were promoted
+to `automation/shared` (`retry.ts`, `env-helpers.ts`) at that point —
+platform modules aren't allowed to import from each other — not guessed
+in advance.
 
 ## Dry-run mode
 
@@ -152,12 +156,26 @@ in dry-run as it will in production.
 
 `OpenAiImageProvider` calls OpenAI's REST API directly via `fetch` (no SDK
 dependency), retries transient failures (429, 5xx, network errors) with
-exponential backoff (`automation/ai/retry.ts`) — permanent failures (4xx,
-malformed responses) are not retried — and validates that the response is
-a real PNG before returning it, all wrapped in `logger.time("Generate
-Artwork", ...)` so every generation attempt is automatically
-duration-logged and job-correlated. It requests `background: "transparent"`
-explicitly, matching the prompt's own style directive (see below).
+exponential backoff (`automation/shared/retry.ts`) — permanent failures
+(4xx, malformed responses) are not retried — and validates that the
+response is a real PNG before returning it, all wrapped in
+`logger.time("Generate Artwork", ...)` so every generation attempt is
+automatically duration-logged and job-correlated. It requests
+`background: "transparent"` explicitly, matching the prompt's own style
+directive (see below).
+
+The identical pattern generates product listing copy:
+`automation/ai/product-copy-types.ts` defines `ProductCopyProvider`;
+`OpenAiProductCopyProvider` sends the design brief *and* the actual
+generated artwork (as a vision input) to a structured-output chat
+completion (`response_format: json_schema`), so copy is grounded in what
+was actually produced, not just the original brief. Every response —
+real or dry-run — is run through `product-copy-validation.ts`, which
+enforces what's mechanically checkable (field lengths Shopify/Printify
+expect, a sane price range, no duplicate tags); qualitative requirements
+("Caribbean streetwear voice," "no keyword stuffing," "no copyrighted
+phrases") are prompt directives (`product-copy-prompt.ts`), the same way
+commercial-safety is a prompt concern for artwork.
 
 ## Print-ready conversion (automation/ai/prepare-print-ready.ts)
 
@@ -176,18 +194,65 @@ This also means `automation/ai/prompt.ts`'s style directive asks for a
 *transparent* background (not the "plain white background" it originally
 said) — that would have contradicted this stage's whole purpose.
 
+## Printify and Shopify (automation/printify, automation/shopify)
+
+Same provider shape again: `PrintifyProvider`/`ShopifyProvider`
+interfaces, a dry-run implementation, a real `fetch`-based implementation
+with retry/backoff, and a `create<X>Provider()` factory keyed off
+`DRY_RUN`.
+
+Printify's product-creation API requires a blueprint id, print provider
+id, and variant ids that are specific to whatever product/provider the
+account owner has chosen in their Printify catalog — there's no sane
+universal default, so these are **required configuration**
+(`PRINTIFY_BLUEPRINT_ID`/`PRINTIFY_PRINT_PROVIDER_ID`/`PRINTIFY_VARIANT_IDS`)
+rather than a guessed hardcoded value. Going live requires picking real
+values from the account's catalog first.
+
+`ShopifyProvider` has a second method beyond publishing:
+`verifyProductLive(shopifyProductId)`, used by the upload batch (below)
+to confirm a product is actually `active` after creation — publishing
+"succeeding" at the HTTP level isn't the same as the product being live,
+so this is checked explicitly rather than assumed.
+
 ## Orchestration scripts (scripts/)
 
-`scripts/generate-artwork.ts` is the first pipeline-runner: it wires
-`createImageProvider()` → `toPrintReadyPng()` → save-to-disk into one
-end-to-end flow, saving `artwork.png` + `metadata.json` (prompt, job id,
-provider, both source and print dimensions) into
-`designs/generated/{jobId}/`. Its logic lives in an exported
-`generateArtwork()` function — fully unit-testable via dependency
-injection (output directory, logger, provider config) — with a thin
-`main()` CLI wrapper (`npm run generate -- "<brief>"`) that only handles
-argv parsing and console/exit-code reporting. No mockup, product copy, or
-approval gate yet; those are separate, later steps, each independently
-testable per CLAUDE.md's "small, testable phases" rule. A batch approval
-command (`approve job-1 job-2 ...` / `approve --all`), when built, is
-expected to operate on job directories this script produces.
+Each script is a thin CLI wrapper around an exported, dependency-injected
+function (output root/jobs root/logger/provider config), so the actual
+logic is unit-tested directly — `main()` only handles argv parsing and
+console/exit-code reporting.
+
+- **`generate-artwork.ts`** (`generateArtwork`) — `createImageProvider()`
+  → `toPrintReadyPng()` → save `artwork.png` + `metadata.json` to
+  `designs/generated/{jobId}/`.
+- **`generate-product-copy.ts`** (`generateProductCopy`) — reads an
+  existing job's `metadata.json` + `artwork.png`, calls
+  `createProductCopyProvider()`, saves `product.json` alongside them.
+- **`run-batch.ts`** (`runBatch`) — runs the above two for a whole list of
+  design briefs (`automation/ai/batch-concepts.ts` holds the 25 launch
+  concepts) via `runWithConcurrency` (`automation/shared/concurrency.ts`,
+  a small bounded worker pool — no new dependency). One brief failing
+  never stops the rest: each result is captured as `{ status: "success" }`
+  or `{ status: "failed", stage, error }`, and a full report is printed
+  and saved as JSON.
+- **`approve.ts`** (`decideJobs`/`listPendingJobIds`) — the human approval
+  gate. Batch by design from its first implementation (not retrofitted):
+  `approve job-1 job-2` or `approve --all`. Moves a job's directory from
+  `designs/generated/` to `designs/approved/` (or `designs/archive/` for
+  `reject`) — never overwriting an existing destination, and refusing to
+  move a job that isn't fully generated yet. Nothing auto-approves; a
+  human runs this command.
+- **`run-uploads.ts`** (`runUploads`/`listApprovedJobIds`) — for each
+  approved job: upload to Printify, publish to Shopify, verify it's live,
+  then move the job to `designs/uploaded/`. Same bounded-concurrency,
+  continue-past-failure, final-report shape as `run-batch.ts`. If either
+  provider is misconfigured, every job fails immediately with that
+  config error rather than attempting (and partially completing) network
+  calls.
+
+This is the complete launch pipeline, exercised end to end in dry-run
+against all 25 launch concepts before being considered done: 25/25
+generated, 25/25 approved, 25/25 uploaded/published/verified, with zero
+live credentials involved. Going live is purely a config change —
+`DRY_RUN=false` plus real credentials for OpenAI, Printify (including the
+catalog ids above), and Shopify.

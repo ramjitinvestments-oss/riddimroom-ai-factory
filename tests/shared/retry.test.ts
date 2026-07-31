@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { withRetry } from "../../automation/ai/retry.ts";
+import { withRetry } from "../../automation/shared/retry.ts";
 
 function fakeSleep(recorded: number[]): (ms: number) => Promise<void> {
   return async (ms: number) => {
