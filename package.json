@@ -1,0 +1,22 @@
+{
+  "name": "riddimroom-ai-factory",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI-powered production platform for original, commercial-safe Caribbean-themed apparel.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.6.0"
+  },
+  "scripts": {
+    "typecheck": "tsc",
+    "test": "node --disable-warning=ExperimentalWarning --test \"tests/**/*.test.ts\"",
+    "generate": "node scripts/generate-artwork.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2"
+  },
+  "dependencies": {
+    "sharp": "^0.35.3"
+  }
+}
