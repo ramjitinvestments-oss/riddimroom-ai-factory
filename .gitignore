@@ -37,6 +37,8 @@ designs/archive/*
 !designs/archive/.gitkeep
 mockups/*
 !mockups/.gitkeep
+assets/*
+!assets/.gitkeep
 
 # --- OS ---
 .DS_Store
