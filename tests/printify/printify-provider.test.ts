@@ -105,6 +105,58 @@ test("PrintifyApiProvider uploads the image then creates the product on success"
     [111, 222],
   );
   assert.equal(variants[0]?.price, 2799);
+  assert.deepEqual(result.value.mockupUrls, []); // stub response had no "images" field
+});
+
+test("PrintifyApiProvider surfaces mockup image URLs Printify returns on product creation", async () => {
+  const { fetchImpl } = stubFetch([
+    () => jsonResponse(200, { id: "img-1" }),
+    () =>
+      jsonResponse(200, {
+        id: "prod-1",
+        images: [{ src: "https://images.printify.com/mockup-front.jpg" }, { src: "https://images.printify.com/mockup-back.jpg" }, {}],
+      }),
+  ]);
+  const provider = new PrintifyApiProvider(baseOptions(fetchImpl));
+
+  const result = await provider.uploadProduct(request);
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.deepEqual(result.value.mockupUrls, [
+    "https://images.printify.com/mockup-front.jpg",
+    "https://images.printify.com/mockup-back.jpg",
+  ]);
+});
+
+test("PrintifyApiProvider sends the upper-chest placement standard by default (x=0.5, y=0.35, scale=0.85)", async () => {
+  const { fetchImpl, calls } = stubFetch([
+    () => jsonResponse(200, { id: "img-1" }),
+    () => jsonResponse(200, { id: "prod-1" }),
+  ]);
+  const provider = new PrintifyApiProvider(baseOptions(fetchImpl));
+
+  await provider.uploadProduct(request);
+
+  const printAreas = calls[1]?.body.print_areas as Array<{ placeholders: Array<{ images: Array<{ x: number; y: number; scale: number; angle: number }> }> }>;
+  const image = printAreas[0]?.placeholders[0]?.images[0];
+  assert.deepEqual(image, { id: "img-1", x: 0.5, y: 0.35, scale: 0.85, angle: 0 });
+});
+
+test("PrintifyApiProvider uses a custom print placement when provided", async () => {
+  const { fetchImpl, calls } = stubFetch([
+    () => jsonResponse(200, { id: "img-1" }),
+    () => jsonResponse(200, { id: "prod-1" }),
+  ]);
+  const provider = new PrintifyApiProvider(
+    baseOptions(fetchImpl, { placementX: 0.5, placementY: 0.4, placementScale: 0.9 }),
+  );
+
+  await provider.uploadProduct(request);
+
+  const printAreas = calls[1]?.body.print_areas as Array<{ placeholders: Array<{ images: Array<{ x: number; y: number; scale: number; angle: number }> }> }>;
+  const image = printAreas[0]?.placeholders[0]?.images[0];
+  assert.deepEqual(image, { id: "img-1", x: 0.5, y: 0.4, scale: 0.9, angle: 0 });
 });
 
 test("PrintifyApiProvider does not call fetch for invalid inputs", async () => {

@@ -5,7 +5,7 @@
  */
 import { type EnvVarSpec, parseBoolean, validateConfig } from "../shared/config.ts";
 import { ConfigError, ValidationError } from "../shared/errors.ts";
-import { parseIntWithFallback } from "../shared/env-helpers.ts";
+import { parseFloatWithFallback, parseIntWithFallback } from "../shared/env-helpers.ts";
 import type { Logger } from "../shared/logger.ts";
 import { err, ok, type Result } from "../shared/result.ts";
 import { DryRunPrintifyProvider } from "./dry-run-provider.ts";
@@ -37,6 +37,35 @@ export const PRINTIFY_ENV_SPECS: readonly EnvVarSpec[] = [
     name: "PRINTIFY_VARIANT_IDS",
     description: "Comma-separated Printify variant ids (sizes/colors) to enable.",
     required: true,
+    secret: false,
+  },
+];
+
+/**
+ * Print placement overrides — optional, so unset in .env means "use the
+ * upper-chest standard baked into PrintifyApiProvider's defaults" (see the
+ * doc comment on DEFAULT_PLACEMENT_Y/DEFAULT_PLACEMENT_SCALE there for
+ * where those numbers come from). Exposed as env vars, not hardcoded here
+ * too, so the placement can be tuned per account/blueprint without a code
+ * change once a real mockup shows it needs adjusting.
+ */
+export const PRINTIFY_PLACEMENT_ENV_SPECS: readonly EnvVarSpec[] = [
+  {
+    name: "PRINTIFY_PRINT_X",
+    description: "Horizontal center of the print, as a fraction of print-area width (0.5 = centered).",
+    required: false,
+    secret: false,
+  },
+  {
+    name: "PRINTIFY_PRINT_Y",
+    description: "Vertical center of the print, as a fraction of print-area height (0 = top, 1 = bottom).",
+    required: false,
+    secret: false,
+  },
+  {
+    name: "PRINTIFY_PRINT_SCALE",
+    description: "Print width, as a fraction of print-area width (1 = full width).",
+    required: false,
     secret: false,
   },
 ];
@@ -111,6 +140,15 @@ export function createPrintifyProvider(
       variantIds,
       maxAttempts: parseIntWithFallback(env.PRINTIFY_MAX_RETRIES, 3),
       baseDelayMs: parseIntWithFallback(env.PRINTIFY_RETRY_BASE_DELAY_MS, 500),
+      ...(env.PRINTIFY_PRINT_X !== undefined
+        ? { placementX: parseFloatWithFallback(env.PRINTIFY_PRINT_X, 0.5) }
+        : {}),
+      ...(env.PRINTIFY_PRINT_Y !== undefined
+        ? { placementY: parseFloatWithFallback(env.PRINTIFY_PRINT_Y, 0.35) }
+        : {}),
+      ...(env.PRINTIFY_PRINT_SCALE !== undefined
+        ? { placementScale: parseFloatWithFallback(env.PRINTIFY_PRINT_SCALE, 0.85) }
+        : {}),
       ...(options.logger !== undefined ? { logger: options.logger } : {}),
       ...(options.fetchImpl !== undefined ? { fetchImpl: options.fetchImpl } : {}),
     }),

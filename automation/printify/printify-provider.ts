@@ -23,6 +23,31 @@ const PRINTIFY_API_BASE = "https://api.printify.com/v1";
 const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_BASE_DELAY_MS = 500;
 
+/**
+ * Front-print placement, as fractions of Printify's print area
+ * (`x`/`y` = center of the image, `scale` = image width relative to the
+ * print area's width; Printify's own convention — 0.5/0.5/1 is dead
+ * center at full print-area width).
+ *
+ * Standard set 2026-08-02 from a reference mockup comparison
+ * (RiddimRoom_Mockup_Positioning_Fix.png): the previous default (0.5/0.5/1)
+ * placed designs centered on the torso (~3.5in below the collar, bottom of
+ * design near mid-torso) — too low for a premium apparel look. The
+ * corrected standard targets the upper chest (top of design ~1.5-2in below
+ * the collar, bottom above mid-torso, print width ~11-12in on L/XL).
+ *
+ * These are *estimates* derived from that reference image's proportions,
+ * not measured against this account's actual Printify blueprint print-area
+ * dimensions — no live Printify Catalog API access was available to look
+ * those up. Treat them as a starting point: verify against a real
+ * generated mockup (e.g. the next live upload test) and adjust
+ * PRINTIFY_PRINT_Y / PRINTIFY_PRINT_SCALE in .env if the rendered mockup
+ * doesn't match the standard.
+ */
+const DEFAULT_PLACEMENT_X = 0.5;
+const DEFAULT_PLACEMENT_Y = 0.35;
+const DEFAULT_PLACEMENT_SCALE = 0.85;
+
 export interface PrintifyProviderOptions {
   readonly apiKey: string;
   readonly shopId: string;
@@ -34,6 +59,12 @@ export interface PrintifyProviderOptions {
   readonly logger?: Logger;
   /** Injectable fetch implementation, so tests never hit the real network. */
   readonly fetchImpl?: typeof fetch;
+  /** Horizontal center of the print, as a fraction of print-area width. Defaults to 0.5 (centered). */
+  readonly placementX?: number;
+  /** Vertical center of the print, as a fraction of print-area height. Defaults to the upper-chest standard above. */
+  readonly placementY?: number;
+  /** Print width, as a fraction of print-area width. Defaults to the upper-chest standard above. */
+  readonly placementScale?: number;
 }
 
 interface UploadImageResponseBody {
@@ -42,6 +73,8 @@ interface UploadImageResponseBody {
 
 interface CreateProductResponseBody {
   readonly id?: string;
+  /** Printify auto-generates these on product creation; each has a rendered mockup image URL. */
+  readonly images?: ReadonlyArray<{ readonly src?: string }>;
 }
 
 export class PrintifyApiProvider implements PrintifyProvider {
@@ -55,6 +88,9 @@ export class PrintifyApiProvider implements PrintifyProvider {
   private readonly baseDelayMs: number;
   private readonly logger: Logger;
   private readonly fetchImpl: typeof fetch;
+  private readonly placementX: number;
+  private readonly placementY: number;
+  private readonly placementScale: number;
 
   constructor(options: PrintifyProviderOptions) {
     this.apiKey = options.apiKey;
@@ -67,6 +103,9 @@ export class PrintifyApiProvider implements PrintifyProvider {
     this.logger =
       options.logger ?? new Logger({ module: "automation/printify", transports: [new ConsoleTransport()] });
     this.fetchImpl = options.fetchImpl ?? fetch;
+    this.placementX = options.placementX ?? DEFAULT_PLACEMENT_X;
+    this.placementY = options.placementY ?? DEFAULT_PLACEMENT_Y;
+    this.placementScale = options.placementScale ?? DEFAULT_PLACEMENT_SCALE;
   }
 
   async uploadProduct(
@@ -105,6 +144,7 @@ export class PrintifyApiProvider implements PrintifyProvider {
         printifyProductId: result.productId,
         printifyImageId: result.imageId,
         createdAt: new Date().toISOString(),
+        mockupUrls: result.mockupUrls,
         metadata: {},
       });
     } catch (error) {
@@ -117,10 +157,10 @@ export class PrintifyApiProvider implements PrintifyProvider {
 
   private async callPrintify(
     request: PrintifyUploadRequest,
-  ): Promise<{ productId: string; imageId: string }> {
+  ): Promise<{ productId: string; imageId: string; mockupUrls: string[] }> {
     const imageId = await this.uploadImage(request);
-    const productId = await this.createProduct(request, imageId);
-    return { productId, imageId };
+    const { productId, mockupUrls } = await this.createProduct(request, imageId);
+    return { productId, imageId, mockupUrls };
   }
 
   private async uploadImage(request: PrintifyUploadRequest): Promise<string> {
@@ -135,7 +175,10 @@ export class PrintifyApiProvider implements PrintifyProvider {
     return body.id;
   }
 
-  private async createProduct(request: PrintifyUploadRequest, imageId: string): Promise<string> {
+  private async createProduct(
+    request: PrintifyUploadRequest,
+    imageId: string,
+  ): Promise<{ productId: string; mockupUrls: string[] }> {
     const priceCents = Math.round(request.priceUsd * 100);
     const body = await this.request<CreateProductResponseBody>(`/shops/${this.shopId}/products.json`, {
       title: request.title,
@@ -149,7 +192,7 @@ export class PrintifyApiProvider implements PrintifyProvider {
           placeholders: [
             {
               position: "front",
-              images: [{ id: imageId, x: 0.5, y: 0.5, scale: 1, angle: 0 }],
+              images: [{ id: imageId, x: this.placementX, y: this.placementY, scale: this.placementScale, angle: 0 }],
             },
           ],
         },
@@ -159,7 +202,12 @@ export class PrintifyApiProvider implements PrintifyProvider {
     if (body.id === undefined || body.id.length === 0) {
       throw new ValidationError(["Printify product creation response did not include an id"]);
     }
-    return body.id;
+
+    const mockupUrls = (body.images ?? [])
+      .map((image) => image.src)
+      .filter((src): src is string => typeof src === "string" && src.length > 0);
+
+    return { productId: body.id, mockupUrls };
   }
 
   private async request<TBody extends object>(path: string, payload: unknown): Promise<TBody> {
