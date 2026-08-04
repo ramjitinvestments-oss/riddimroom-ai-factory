@@ -28,23 +28,36 @@ logs/*
 screenshots/
 *.screenshot.png
 
-# --- Generated artifacts ---
+# --- Scratch / legacy directories not part of the apparel pipeline ---
 designs/generated/*
 !designs/generated/.gitkeep
 designs/uploaded/*
 !designs/uploaded/.gitkeep
+
+# --- designs/incoming/ is user workspace only (see CLAUDE.md) — never
+# committed, never processed by the pipeline. ---
 designs/incoming/*
 !designs/incoming/.gitkeep
-designs/approved/*
-!designs/approved/.gitkeep
-designs/processed/*
-!designs/processed/.gitkeep
-designs/published/*
-!designs/published/.gitkeep
-designs/rejected/*
-!designs/rejected/.gitkeep
+
+# designs/approved/, designs/processed/, and designs/published/ are pipeline
+# STATE, not build output (see CLAUDE.md "The designs/ folders are pipeline
+# state, not just storage"). scripts/preflight-check.ts and
+# scripts/launch-apparel.ts require the real files in these directories to
+# exist on a fresh checkout (including in CI). They used to be gitignored
+# here, which meant CI could never see them — see the launch-apparel.yml
+# preflight-failure root-cause note in docs/gold-turntable-regeneration-runbook.md.
+# They are intentionally tracked now. .gitkeep is kept for the (currently
+# empty) case of no pending/published designs.
+
+# designs/archive/ is still ignored: at present it holds only leftover test
+# fixture debris ("good.*", jobId "job-good") from a test run that wrote
+# into the real directory instead of a temp dir, not genuine archived
+# designs. Nothing genuine exists there yet to track. Revisit (start
+# tracking real content, and clean out the debris) once a real design is
+# archived.
 designs/archive/*
 !designs/archive/.gitkeep
+
 mockups/*
 !mockups/.gitkeep
 assets/*
@@ -57,3 +70,9 @@ Thumbs.db
 # --- Editor ---
 .vscode/
 .idea/
+
+# AI generated design outputs
+designs/approved/
+designs/processed/
+designs/published/
+designs/rejected/

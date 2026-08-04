@@ -41,6 +41,31 @@ Verification
 Publish Ready
 ```
 
+## Why `designs/approved/`, `designs/processed/`, `designs/published/`, and `designs/rejected/` are tracked in git
+
+`scripts/preflight-check.ts` and `scripts/launch-apparel.ts` read real
+files out of these directories (the prepared 4500x5400 PNGs, the
+generated `*.product.json`/`*.seo.json`/`*.tags.json`/`*.description.md`,
+and the `*.printify.json`/`*.shopify.json` records of what's already
+live). Until August 2026 these directories were gitignored (`designs/*/*`
+with only `.gitkeep` tracked), which meant a fresh checkout — including
+every GitHub Actions run — started with those directories empty. Preflight
+was working correctly: it was correctly detecting that a fresh checkout
+had none of the artwork/metadata the launch needs, not enforcing some
+obsolete directory layout. The commit that finalized the CI pipeline
+(`adf1f74`, "Finalize apparel production pipeline") added the CI workflow
+and the gitignore rule that hid its own required inputs from CI in the
+same commit.
+
+The fix: these four directories' real contents (not `designs/incoming/`,
+which stays gitignored — see CLAUDE.md, it's user workspace only and the
+pipeline never reads it) are now committed to git, so a fresh checkout —
+local or CI — has the same pipeline state this repository's own working
+copy does. `designs/archive/` is still gitignored; at the time of this
+fix it held only leftover test-fixture debris (`good.*`, jobId
+`job-good`) rather than any genuine archived design, so there was nothing
+real to track yet.
+
 One command — `scripts/apparel-pipeline.ts <design stem>` — walks a
 design through every stage above automatically, detecting whether it's a
 first-time upload or an update to something already live and routing
