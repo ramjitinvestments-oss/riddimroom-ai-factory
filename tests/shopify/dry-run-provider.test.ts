@@ -54,3 +54,42 @@ test("DryRunShopifyProvider rejects a blank product id for verification", async 
   const result = await provider.verifyProductLive("  ");
   assert.equal(result.ok, false);
 });
+
+test("DryRunShopifyProvider's getProduct echoes back exactly what publishProduct recorded", async () => {
+  const provider = new DryRunShopifyProvider();
+  const published = await provider.publishProduct({
+    ...request,
+    seoTitle: "Sunset Parrot T-Shirt | Caribbean Streetwear",
+    seoDescription: "Shop the Sunset Parrot tee.",
+    collection: "Caribbean Vibes",
+  });
+  assert.equal(published.ok, true);
+  if (!published.ok) return;
+
+  const result = await provider.getProduct(published.value.shopifyProductId);
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.value.title, "Sunset Parrot Tee");
+  assert.equal(result.value.descriptionHtml, "<p>A bold Caribbean design.</p>");
+  assert.equal(result.value.handle, published.value.handle);
+  assert.equal(result.value.status, "active");
+  assert.deepEqual(result.value.tags, ["caribbean", "streetwear"]);
+  assert.equal(result.value.variants.length, 1);
+  assert.equal(result.value.variants[0]?.price, 27.99);
+  assert.ok(result.value.imageUrls.length >= 1);
+  assert.equal(result.value.seoTitle, "Sunset Parrot T-Shirt | Caribbean Streetwear");
+  assert.equal(result.value.seoDescription, "Shop the Sunset Parrot tee.");
+  assert.deepEqual(result.value.collections, ["Caribbean Vibes"]);
+});
+
+test("DryRunShopifyProvider's getProduct fails for an id nothing was ever published under", async () => {
+  const provider = new DryRunShopifyProvider();
+  const result = await provider.getProduct("dry-run-product-never-published");
+  assert.equal(result.ok, false);
+});
+
+test("DryRunShopifyProvider's getProduct rejects a blank product id", async () => {
+  const provider = new DryRunShopifyProvider();
+  const result = await provider.getProduct("  ");
+  assert.equal(result.ok, false);
+});

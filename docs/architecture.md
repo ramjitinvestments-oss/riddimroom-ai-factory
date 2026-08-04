@@ -131,40 +131,42 @@ a fresh checkout with no `.env` configured can never accidentally hit a
 real paid API. Flipping to production is meant to be a config change only
 — `DRY_RUN=false` plus the real credentials — never a code change.
 
-## Provider pattern (automation/ai)
+## Artwork: supplied by the user, not generated
 
-Each external integration is written against an interface, not a concrete
-implementation, so the concrete implementation can be swapped later
-without touching pipeline code. `automation/ai/types.ts` defines
-`ImageGenerationProvider`; `automation/ai/openai-provider.ts` and
-`automation/ai/dry-run-provider.ts` are two interchangeable
-implementations of it. `automation/ai/create-image-provider.ts` is the
-only place that decides which one to construct (based on `DRY_RUN`) —
-pipeline code calls `createImageProvider()` and never constructs a
-provider class directly. A future provider (Google Imagen, Flux, ...)
-means adding one more class implementing `ImageGenerationProvider` and one
-more branch in that factory; nothing else changes. Expect this same
-shape — `types.ts` + real implementation + dry-run implementation +
-`create<X>Provider()` factory — to repeat for Printify and Shopify.
+RiddimRoom AI Factory is a **publishing engine**, not an image-generation
+engine: artwork is supplied by the user and registered into the Asset
+Library (`automation/ai/assets/`) — nothing in this codebase calls an AI
+image-generation API. A design's hero artwork is looked up from the
+library by category/style/tags (`automation/ai/assets/asset-search.ts`)
+and, if a title is requested, composited with a real-font typography layer
+(`automation/ai/typography/`) via the Composition Engine
+(`automation/ai/composition/composition-canvas.ts`). If no matching asset
+exists in the library, composition fails with a clear validation error
+rather than generating one — see `automation/ai/compose-shirt-artwork.ts`.
 
-`DryRunImageProvider` doesn't fake business logic; it only replaces the
-network call. It builds a real, valid, decodable PNG (`automation/ai/png.ts`)
-and runs the prompt through the exact same style/safety augmentation
-(`automation/ai/prompt.ts`) that the real provider uses, so downstream
-code (dimension validation, prompt logging, ...) exercises the same paths
-in dry-run as it will in production.
+The Design Director (`automation/ai/design-director.ts`) still chooses the
+art direction a piece of supplied artwork is composited under. The Prompt
+Expansion Engine that used to turn that decision into an image-generation
+prompt has been removed — it had no caller left once the OpenAI image API
+call it fed was deleted.
 
-`OpenAiImageProvider` calls OpenAI's REST API directly via `fetch` (no SDK
-dependency), retries transient failures (429, 5xx, network errors) with
-exponential backoff (`automation/shared/retry.ts`) — permanent failures
-(4xx, malformed responses) are not retried — and validates that the
-response is a real PNG before returning it, all wrapped in
-`logger.time("Generate Artwork", ...)` so every generation attempt is
-automatically duration-logged and job-correlated. It requests
-`background: "transparent"` explicitly, matching the prompt's own style
-directive (see below).
+**Status note:** as of the "Engine Freeze," the Asset Library/Composition
+Engine/Design Director/Collection Director/Typography Engine described in
+this section are kept as dormant, reusable infrastructure — none of them
+are wired into the active production pipeline, which is
+`import-artwork.ts` → `upload-to-printify.ts` → `publish-to-shopify.ts`
+(see the Orchestration scripts section below). `compose-shirt-artwork.ts`
+/ `compose-collection-product.ts` / `generate-composed-artwork.ts` /
+`generate-collection-product.ts` / `approve.ts` still exist and still work,
+but nothing currently calls them as part of a production run.
 
-The identical pattern generates product listing copy:
+The Provider pattern (an interface, a dry-run implementation, a real
+`fetch`-based implementation, a `create<X>Provider()` factory keyed off
+`DRY_RUN`) remains in use for every *external service* this engine still
+calls — Printify, Shopify, and OpenAI for product copy (and optionally the
+Stage 2 AI vision quality judge) — described below.
+
+The identical provider pattern generates product listing copy:
 `automation/ai/product-copy-types.ts` defines `ProductCopyProvider`;
 `OpenAiProductCopyProvider` sends the design brief *and* the actual
 generated artwork (as a vision input) to a structured-output chat
@@ -180,19 +182,16 @@ commercial-safety is a prompt concern for artwork.
 ## Print-ready conversion (automation/ai/prepare-print-ready.ts)
 
 CLAUDE.md's print constraint (exactly 4500x5400 PNG, transparent
-background) is non-negotiable and is validated, not assumed. AI providers
-return roughly-square images at a different aspect ratio than the print
-canvas, so `toPrintReadyPng()` uses `sharp` (the one real dependency added
-so far, beyond the zero-dependency hand-rolled `png.ts`) to pad — not
-stretch — the source to the exact target size (`fit: "contain"`, transparent
-background fill), then re-validates the *output* with `readPngDimensions`/
-`hasAlphaChannel` before returning it. A source image that fails to decode,
-or an output that doesn't come out to exactly the right size or lacks an
-alpha channel, is reported as a `ValidationError`, never silently accepted.
-
-This also means `automation/ai/prompt.ts`'s style directive asks for a
-*transparent* background (not the "plain white background" it originally
-said) — that would have contradicted this stage's whole purpose.
+background) is non-negotiable and is validated, not assumed. Composed
+artwork (and any other source image passing through this stage) can arrive
+at a different aspect ratio than the print canvas, so `toPrintReadyPng()`
+uses `sharp` (the one real dependency added so far, beyond the
+zero-dependency hand-rolled `png.ts`) to pad — not stretch — the source to
+the exact target size (`fit: "contain"`, transparent background fill),
+then re-validates the *output* with `readPngDimensions`/`hasAlphaChannel`
+before returning it. A source image that fails to decode, or an output
+that doesn't come out to exactly the right size or lacks an alpha channel,
+is reported as a `ValidationError`, never silently accepted.
 
 ## Printify and Shopify (automation/printify, automation/shopify)
 
@@ -222,19 +221,24 @@ function (output root/jobs root/logger/provider config), so the actual
 logic is unit-tested directly — `main()` only handles argv parsing and
 console/exit-code reporting.
 
-- **`generate-artwork.ts`** (`generateArtwork`) — `createImageProvider()`
-  → `toPrintReadyPng()` → save `artwork.png` + `metadata.json` to
-  `designs/generated/{jobId}/`.
+**Note:** the folder names below (`designs/generated/`, `designs/uploaded/`)
+are what these scripts currently write to. CLAUDE.md's Repository layout
+defines the target production folder taxonomy
+(`incoming/`/`approved/`/`published/`/`rejected/`/`archive/`, no
+`generated/` stage since artwork is user-supplied); these scripts have not
+been migrated onto it yet — that's a separate follow-up, not done here.
+
+- **`generate-composed-artwork.ts`** (`generateComposedArtworkJob`) /
+  **`generate-collection-product.ts`** (`generateCollectionProductJob`) —
+  resolve a hero asset from the Asset Library, composite it (plus an
+  optional typography layer) via `composeShirtArtwork`/
+  `composeCollectionProduct` → `toPrintReadyPng()` → save `artwork.png` +
+  `metadata.json` to `designs/generated/{jobId}/`. Fail with a clear
+  validation error if no matching artwork has been registered in the Asset
+  Library yet — artwork is supplied by the user, never generated.
 - **`generate-product-copy.ts`** (`generateProductCopy`) — reads an
   existing job's `metadata.json` + `artwork.png`, calls
   `createProductCopyProvider()`, saves `product.json` alongside them.
-- **`run-batch.ts`** (`runBatch`) — runs the above two for a whole list of
-  design briefs (`automation/ai/batch-concepts.ts` holds the 25 launch
-  concepts) via `runWithConcurrency` (`automation/shared/concurrency.ts`,
-  a small bounded worker pool — no new dependency). One brief failing
-  never stops the rest: each result is captured as `{ status: "success" }`
-  or `{ status: "failed", stage, error }`, and a full report is printed
-  and saved as JSON.
 - **`approve.ts`** (`decideJobs`/`listPendingJobIds`) — the human approval
   gate. Batch by design from its first implementation (not retrofitted):
   `approve job-1 job-2` or `approve --all`. Moves a job's directory from
@@ -242,17 +246,74 @@ console/exit-code reporting.
   `reject`) — never overwriting an existing destination, and refusing to
   move a job that isn't fully generated yet. Nothing auto-approves; a
   human runs this command.
-- **`run-uploads.ts`** (`runUploads`/`listApprovedJobIds`) — for each
-  approved job: upload to Printify, publish to Shopify, verify it's live,
-  then move the job to `designs/uploaded/`. Same bounded-concurrency,
-  continue-past-failure, final-report shape as `run-batch.ts`. If either
-  provider is misconfigured, every job fails immediately with that
-  config error rather than attempting (and partially completing) network
-  calls.
+- **`prepare-artwork.ts`** (`prepareApprovedArtwork`) — the Artwork
+  Preparation stage, and the first step of the active pipeline. Scans
+  `designs/approved/` for PNGs and inspects each one
+  (`automation/ai/artwork-preparation.ts`: dimensions, DPI, transparency,
+  color profile). If it's already Printify-suitable (exact print canvas,
+  ≥300 effective DPI, transparent, PNG), it's copied through unchanged; if
+  not, the *only* fixes ever applied are (a) background removal, and only
+  when the background is a simple uniform color, via a flood fill from the
+  canvas edge (never a blanket color-threshold sweep — same-colored
+  regions enclosed by the subject are never touched), and (b) an
+  aspect-preserving resize/upscale/pad onto the exact print canvas via
+  `toPrintReadyPng()` (never a stretch, never a crop). The result is
+  written to `designs/processed/`, mirroring the relative path under
+  `designs/approved/`, alongside a `<stem>.prepared.json` report; the
+  original is never modified.
+  **Error handling here is deliberately different from every other stage:**
+  an item that can't be safely prepared (a non-uniform background, or
+  removal that would erase the subject) is a *content* problem with that
+  one piece of artwork, not a pipeline problem — it's moved to
+  `designs/rejected/` with a `<stem>.rejected.json` report (filename,
+  reason, suggested fix) and the batch **continues** to the next item,
+  rather than stopping. Only a genuine system failure (a filesystem error,
+  or an unexpected exception escaping `prepareArtwork()`'s normal `Result`
+  handling — a crash, not a clean validation failure) stops the whole
+  batch, the same production-safe behavior every other stage uses.
+  Idempotent both ways: a PNG whose `designs/processed/` *or*
+  `designs/rejected/` counterpart already exists is skipped, not
+  reattempted. Calls neither Printify nor Shopify.
+- **`import-artwork.ts`** (`importApprovedArtwork`) — by default scans
+  `designs/processed/` (Artwork Preparation's output, not the raw
+  original) for print-ready PNGs and analyzes each one
+  (`automation/ai/artwork-analysis-*`), writing `<stem>.product.json` /
+  `.seo.json` / `.tags.json` / `.description.md` / `.job.json` beside it.
+  Idempotent (a PNG with a `.job.json` is skipped) and production-safe: the
+  moment one item fails validation or metadata generation, the whole scan
+  stops immediately — no later PNG is attempted.
+- **`upload-to-printify.ts`** (`uploadApprovedArtworkToPrintify`) — for
+  each analyzed-but-not-yet-uploaded PNG in `designs/processed/`, uploads
+  to Printify and writes `<stem>.printify.json`. Same stop-on-first-failure,
+  idempotent-resume behavior as `import-artwork.ts`.
+- **`publish-to-shopify.ts`** (`publishApprovedArtworkToShopify`) — for
+  each Printify-uploaded PNG, publishes to Shopify, reads the product back
+  to verify every field actually landed, writes `<stem>.shopify.json`, and
+  only on a full verification pass moves the artwork (and all its sibling
+  artifact files, including `<stem>.prepared.json`) to `designs/published/`.
+  Same stop-on-first-failure, idempotent-resume behavior.
 
-This is the complete launch pipeline, exercised end to end in dry-run
-against all 25 launch concepts before being considered done: 25/25
-generated, 25/25 approved, 25/25 uploaded/published/verified, with zero
-live credentials involved. Going live is purely a config change —
-`DRY_RUN=false` plus real credentials for OpenAI, Printify (including the
-catalog ids above), and Shopify.
+This is the current launch pipeline: user-supplied artwork placed in
+`designs/approved/` → prepared into a print-ready file in
+`designs/processed/` → analyzed → uploaded to Printify → published to
+Shopify and verified live → moved to `designs/published/`. Product
+Approval (Metadata Generation) and everything after it analyzes and acts
+on the *processed* artwork only — the original in `designs/approved/` is
+never read again once it's been prepared. Per CLAUDE.md's production-safety
+rule, a failure in any of the four stages halts that stage's whole batch
+immediately — nothing is skipped, and nothing continues past a failure.
+Going live is purely a config change — `DRY_RUN=false` plus real
+credentials for OpenAI (artwork analysis), Printify (including the catalog
+ids above), and Shopify.
+
+`generate-composed-artwork.ts` / `generate-collection-product.ts` /
+`generate-product-copy.ts` / `approve.ts` above are an older,
+AI-generates-the-artwork pipeline (`designs/generated/` →
+`designs/approved/`) that predates CLAUDE.md's current "artwork is
+user-supplied, not AI-generated" rule. They're unrelated to
+`prepare-artwork.ts`/`import-artwork.ts`/`upload-to-printify.ts`/`publish-to-shopify.ts`,
+which operate on `designs/approved/`/`designs/processed/` directly with no
+generation stage. `scripts/run-uploads.ts`, the old combined
+bounded-concurrency continue-past-failure upload/publish script, was
+removed since it conflicted with the production-safety rule and is fully
+superseded by `upload-to-printify.ts` + `publish-to-shopify.ts`.

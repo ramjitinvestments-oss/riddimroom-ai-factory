@@ -15,9 +15,21 @@ test("reports a ConfigError when DRY_RUN is false and credentials are missing", 
     assert.equal(result.error.code, "CONFIG_ERROR");
     assert.deepEqual(
       [...result.error.missing].sort(),
-      ["SHOPIFY_ADMIN_API_ACCESS_TOKEN", "SHOPIFY_STORE_DOMAIN"],
+      ["SHOPIFY_CLIENT_ID", "SHOPIFY_CLIENT_SECRET", "SHOPIFY_STORE_DOMAIN"],
     );
   }
+});
+
+test("does not require SHOPIFY_ADMIN_API_ACCESS_TOKEN", () => {
+  const result = createShopifyProvider({
+    env: {
+      DRY_RUN: "false",
+      SHOPIFY_STORE_DOMAIN: "riddimroom.myshopify.com",
+      SHOPIFY_CLIENT_ID: "client-id",
+      SHOPIFY_CLIENT_SECRET: "client-secret",
+    },
+  });
+  assert.equal(result.ok, true);
 });
 
 test("builds the real provider when DRY_RUN is false and credentials are set", () => {
@@ -25,7 +37,8 @@ test("builds the real provider when DRY_RUN is false and credentials are set", (
     env: {
       DRY_RUN: "false",
       SHOPIFY_STORE_DOMAIN: "riddimroom.myshopify.com",
-      SHOPIFY_ADMIN_API_ACCESS_TOKEN: "shpat_test",
+      SHOPIFY_CLIENT_ID: "client-id",
+      SHOPIFY_CLIENT_SECRET: "client-secret",
     },
   });
   assert.equal(result.ok, true);

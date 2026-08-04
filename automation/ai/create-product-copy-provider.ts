@@ -1,9 +1,8 @@
 /**
  * Single place that decides which `ProductCopyProvider` the pipeline
- * gets: dry-run (default, no network calls) or the real OpenAI provider.
- * Mirrors `./create-image-provider.ts` exactly — same `DRY_RUN` switch,
- * same shape — pipeline code should always go through this factory
- * rather than constructing a provider directly.
+ * gets: dry-run (default, no network calls) or the real OpenAI provider,
+ * keyed off `DRY_RUN` — pipeline code should always go through this
+ * factory rather than constructing a provider directly.
  */
 import { type EnvVarSpec, parseBoolean, validateConfig } from "../shared/config.ts";
 import { ConfigError } from "../shared/errors.ts";

@@ -33,6 +33,16 @@ designs/generated/*
 !designs/generated/.gitkeep
 designs/uploaded/*
 !designs/uploaded/.gitkeep
+designs/incoming/*
+!designs/incoming/.gitkeep
+designs/approved/*
+!designs/approved/.gitkeep
+designs/processed/*
+!designs/processed/.gitkeep
+designs/published/*
+!designs/published/.gitkeep
+designs/rejected/*
+!designs/rejected/.gitkeep
 designs/archive/*
 !designs/archive/.gitkeep
 mockups/*

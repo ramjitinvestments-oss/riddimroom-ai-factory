@@ -1,10 +1,9 @@
 /**
- * Provider interface for product listing copy generation. Mirrors
- * `./types.ts`'s `ImageGenerationProvider` shape exactly: pipeline code
+ * Provider interface for product listing copy generation. Pipeline code
  * (`scripts/generate-product-copy.ts`) depends only on `ProductCopyProvider`,
- * so a future text-generation backend plugs in the same way a future
- * image backend would — a new class implementing this interface, selected
- * by `createProductCopyProvider` (./create-product-copy-provider.ts).
+ * so a future text-generation backend plugs in without pipeline changes —
+ * a new class implementing this interface, selected by
+ * `createProductCopyProvider` (./create-product-copy-provider.ts).
  */
 import type { ExternalServiceError, ValidationError } from "../shared/errors.ts";
 import type { Result } from "../shared/result.ts";

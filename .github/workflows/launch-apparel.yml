@@ -1,0 +1,133 @@
+name: Launch Apparel (Production)
+
+# Runs the existing, unmodified production launch pipeline
+# (`npm run launch:apparel`) exactly as it runs locally — this workflow adds
+# no pipeline logic of its own. It exists only to run that same command from
+# a machine with unrestricted outbound network access (Printify and
+# Shopify's OAuth endpoint are unreachable from Claude's own sandbox — see
+# docs/gold-turntable-regeneration-runbook.md).
+#
+# `npm run launch:apparel` already runs its own pre-flight check
+# (scripts/preflight-check.ts) and aborts before any Printify/Shopify write
+# if anything required is missing or unreachable — this workflow does not
+# duplicate that validation, it only supplies the secrets that check reads.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type LAUNCH to confirm — this makes real Printify/Shopify writes.'
+        required: true
+        type: string
+
+# Only one production launch at a time. Queues rather than cancels an
+# in-flight run, since cancelling mid-launch could leave a design partially
+# updated — "never duplicate products" depends on a launch always running
+# to completion or a clean stop, not being interrupted by a second trigger.
+concurrency:
+  group: launch-apparel-production
+  cancel-in-progress: false
+
+jobs:
+  launch:
+    name: Run production launch
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 30
+
+    steps:
+      - name: Verify confirmation input
+        if: ${{ github.event.inputs.confirm != 'LAUNCH' }}
+        run: |
+          echo "::error::Confirmation input did not match 'LAUNCH' — aborting before any production call."
+          exit 1
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: package.json
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run production launch
+        id: launch
+        run: npm run launch:apparel
+        env:
+          DRY_RUN: "false"
+          NODE_ENV: production
+          # --- Shopify (OAuth client credentials grant — see automation/shopify/create-provider.ts) ---
+          SHOPIFY_STORE_DOMAIN: ${{ secrets.SHOPIFY_STORE_DOMAIN }}
+          SHOPIFY_CLIENT_ID: ${{ secrets.SHOPIFY_CLIENT_ID }}
+          SHOPIFY_CLIENT_SECRET: ${{ secrets.SHOPIFY_CLIENT_SECRET }}
+          SHOPIFY_API_VERSION: ${{ secrets.SHOPIFY_API_VERSION }}
+          # --- Printify (see automation/printify/create-provider.ts) ---
+          PRINTIFY_API_KEY: ${{ secrets.PRINTIFY_API_KEY }}
+          PRINTIFY_SHOP_ID: ${{ secrets.PRINTIFY_SHOP_ID }}
+          PRINTIFY_BLUEPRINT_ID: ${{ secrets.PRINTIFY_BLUEPRINT_ID }}
+          PRINTIFY_PRINT_PROVIDER_ID: ${{ secrets.PRINTIFY_PRINT_PROVIDER_ID }}
+          PRINTIFY_VARIANT_IDS: ${{ secrets.PRINTIFY_VARIANT_IDS }}
+          PRINTIFY_BLACK_VARIANT_IDS: ${{ secrets.PRINTIFY_BLACK_VARIANT_IDS }}
+          # --- OpenAI (only used if a design still needs metadata generated — see automation/ai) ---
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          # --- Optional overrides — safe to leave unset as GitHub secrets; the pipeline falls back
+          #     to its own defaults (see .env.example) when these are blank. ---
+          PRINTIFY_PRINT_X: ${{ secrets.PRINTIFY_PRINT_X }}
+          PRINTIFY_PRINT_Y: ${{ secrets.PRINTIFY_PRINT_Y }}
+          PRINTIFY_PRINT_SCALE: ${{ secrets.PRINTIFY_PRINT_SCALE }}
+          DEFAULT_SHIRT_PRICE: ${{ secrets.DEFAULT_SHIRT_PRICE }}
+
+      - name: Summarize launch report
+        if: always()
+        run: |
+          REPORT=$(ls -t logs/launch-report-*.json 2>/dev/null | head -n 1 || true)
+          if [ -z "$REPORT" ]; then
+            {
+              echo "## Launch summary"
+              echo ""
+              echo "No launch report was written — the run stopped at pre-flight, before any design was attempted."
+              echo "See the \"Run production launch\" step's log above for exactly which pre-flight checks failed."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          echo "## Launch summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Report: \`$REPORT\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          node --eval '
+            const fs = require("fs");
+            const report = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+            const rows = [];
+            for (const d of report.designs) {
+              if (d.outcome === "failed") {
+                rows.push(`| ${d.designStem} | FAILED | — | — | ${d.error ?? ""} |`);
+              } else {
+                rows.push(`| ${d.designStem} | ${d.outcome === "updated" ? "Updated" : "Created"} | ${d.printifyProductId ?? ""} | ${d.shopifyProductId ?? ""} | |`);
+              }
+            }
+            const lines = [
+              `**Result:** ${report.succeeded ? "SUCCESS — every design launched" : "STOPPED — see below"}`,
+              "",
+              "| Design | Outcome | Printify ID | Shopify ID | Error |",
+              "|---|---|---|---|---|",
+              ...rows,
+              "",
+              `Started: ${report.startedAt}`,
+              `Finished: ${report.finishedAt}`,
+            ];
+            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, lines.join("\n") + "\n");
+          ' "$REPORT"
+
+      - name: Upload launch report and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: launch-apparel-report-${{ github.run_id }}
+          path: logs/
+          if-no-files-found: warn
+          retention-days: 90

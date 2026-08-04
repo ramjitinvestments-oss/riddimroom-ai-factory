@@ -63,6 +63,46 @@ test("generateProductCopy saves product.json with the generated fields", async (
   assert.equal(product.provider, "dry-run");
 });
 
+test("generateProductCopy overrides a shirt's price to the fixed DEFAULT_SHIRT_PRICE, preserving the AI suggestion for audit", async (t) => {
+  const jobsRoot = setUpJob(t, "job-1");
+  const logger = new Logger({ module: "test", transports: [new FakeTransport()] });
+
+  const result = await generateProductCopy("job-1", {
+    jobsRoot,
+    logger,
+    providerOptions: { env: { DRY_RUN: "true" } },
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  const product = JSON.parse(readFileSync(result.value.productPath, "utf8"));
+  assert.equal(product.productType, "T-Shirt");
+  // DryRunProductCopyProvider's own suggestion is 28.99 -- confirms it was overridden, not coincidentally equal.
+  assert.equal(product.aiSuggestedRetailPrice, 28.99);
+  assert.equal(product.suggestedRetailPrice, 24.99);
+});
+
+test("generateProductCopy honors a configured DEFAULT_SHIRT_PRICE", async (t) => {
+  const jobsRoot = setUpJob(t, "job-1");
+  const originalEnv = process.env.DEFAULT_SHIRT_PRICE;
+  process.env.DEFAULT_SHIRT_PRICE = "19.99";
+  t.after(() => {
+    if (originalEnv === undefined) delete process.env.DEFAULT_SHIRT_PRICE;
+    else process.env.DEFAULT_SHIRT_PRICE = originalEnv;
+  });
+
+  const result = await generateProductCopy("job-1", {
+    jobsRoot,
+    providerOptions: { env: { DRY_RUN: "true" } },
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  const product = JSON.parse(readFileSync(result.value.productPath, "utf8"));
+  assert.equal(product.suggestedRetailPrice, 19.99);
+});
+
 test("generateProductCopy rejects a blank jobId without touching disk", async (t) => {
   const jobsRoot = setUpJob(t, "job-1");
   const result = await generateProductCopy("   ", { jobsRoot });

@@ -10,7 +10,8 @@
   "scripts": {
     "typecheck": "tsc",
     "test": "node --disable-warning=ExperimentalWarning --test \"tests/**/*.test.ts\"",
-    "generate": "node scripts/generate-artwork.ts"
+    "preflight": "node --disable-warning=ExperimentalWarning --experimental-strip-types scripts/preflight-check.ts",
+    "launch:apparel": "node --disable-warning=ExperimentalWarning --experimental-strip-types scripts/launch-apparel.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

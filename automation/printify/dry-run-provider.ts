@@ -7,7 +7,13 @@
  */
 import { ValidationError, type ExternalServiceError } from "../shared/errors.ts";
 import { err, ok, type Result } from "../shared/result.ts";
-import type { PrintifyProvider, PrintifyUploadRequest, PrintifyUploadResult } from "./types.ts";
+import type {
+  PrintifyProvider,
+  PrintifyUpdateRequest,
+  PrintifyUpdateResult,
+  PrintifyUploadRequest,
+  PrintifyUploadResult,
+} from "./types.ts";
 
 export interface DryRunPrintifyProviderOptions {
   readonly now?: () => Date;
@@ -40,7 +46,33 @@ export class DryRunPrintifyProvider implements PrintifyProvider {
       printifyProductId: `dry-run-product-${request.jobId}`,
       printifyImageId: `dry-run-image-${request.jobId}`,
       createdAt: this.now().toISOString(),
+      mockupUrls: [],
       metadata: { dryRun: true },
+    });
+  }
+
+  async updateProductColorAndPlacement(
+    request: PrintifyUpdateRequest,
+  ): Promise<Result<PrintifyUpdateResult, ExternalServiceError | ValidationError>> {
+    if (request.printifyProductId.trim().length === 0) {
+      return err(new ValidationError(["printifyProductId must not be blank"]));
+    }
+    if (request.printifyImageId.trim().length === 0) {
+      return err(new ValidationError(["printifyImageId must not be blank"]));
+    }
+    if (request.jobId.trim().length === 0) {
+      return err(new ValidationError(["jobId must not be blank"]));
+    }
+    if (request.variantIds.length === 0) {
+      return err(new ValidationError(["no variant ids supplied for the update"]));
+    }
+
+    return ok({
+      jobId: request.jobId,
+      provider: this.name,
+      printifyProductId: request.printifyProductId,
+      updatedAt: this.now().toISOString(),
+      mockupUrls: [],
     });
   }
 }

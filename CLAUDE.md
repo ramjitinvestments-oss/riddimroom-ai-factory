@@ -4,11 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-RiddimRoom AI Factory is an AI-powered production platform for original,
-commercial-safe Caribbean-themed apparel. It carries a design from AI
-generation through to a published storefront listing:
+RiddimRoom AI Factory is a publishing platform for original,
+commercial-safe Caribbean-themed apparel. Artwork is supplied by the user,
+not AI-generated; the platform carries a design from user-supplied
+artwork through to a published storefront listing:
 
-1. Generate original, commercial-safe Caribbean-themed t-shirt artwork using AI.
+1. User supplies original, commercial-safe Caribbean-themed t-shirt artwork into `designs/incoming/`.
 2. Prepare print-ready assets: PNG, 4500x5400, transparent background.
 3. Generate product mockups.
 4. Human approval gate.
@@ -24,17 +25,27 @@ generation through to a published storefront listing:
   API, or for visual verification of a result. Never build a Playwright
   path as a shortcut around an existing API.
 - **Human approval is a hard gate.** No design or product may move from
-  `designs/approved/` into `designs/uploaded/` (i.e. be sent to Printify or
+  `designs/approved/` into `designs/published/` (i.e. be sent to Printify or
   Shopify) without an explicit approval step. Do not build "auto-approve"
   behavior.
+- **`designs/incoming/` is user workspace only.** Claude never processes,
+  moves, or reads files there as part of the pipeline — it's where the
+  user stages their own artwork before submitting it for approval.
 - **The `designs/` folders are pipeline state, not just storage.** Moving a
-  file between `incoming/` → `generated/` → `approved/` → `uploaded/` /
-  `archive/` represents a real state transition (generation complete,
-  approved for print, sent to a platform, or rejected). Treat these moves
-  as meaningful events to log, not incidental file operations.
+  file between `approved/` → `published/` / `rejected/` → `archive/`
+  represents a real state transition (approved for print, sent to a
+  platform, rejected, or superseded). Treat these moves as meaningful
+  events to log, not incidental file operations.
 - **Print constraint is non-negotiable.** Print-ready artwork must be
   4500x5400 PNG with a transparent background. Validate this, don't assume
   it.
+- **Production-safe error handling: never skip products, never continue
+  after a failure.** If metadata generation, Printify, or Shopify fails
+  for any item in a batch, that stage stops immediately — no later item is
+  attempted, whether the failure is a system/API error or the artwork
+  itself failing validation. Produce a detailed report of exactly what
+  stopped it and what was never attempted. Re-running after a fix resumes
+  cleanly: already-completed items are skipped (idempotent), not redone.
 - **Module isolation.** Code for each integration lives in its own
   `automation/<platform>/` directory (`printify/`, `shopify/`, `ai/`,
   `social/`). Shared logic goes in `automation/shared/`, not duplicated
@@ -54,11 +65,11 @@ generation through to a published storefront listing:
 
 ```
 designs/
-  incoming/    New design briefs/inputs awaiting generation
-  generated/   Raw AI-generated designs, not yet reviewed
-  approved/    Designs approved for production/print
-  uploaded/    Designs uploaded to Printify/Shopify
-  archive/     Rejected or superseded designs
+  incoming/    User workspace only — Claude never processes files here
+  approved/    Only approved artwork exists here
+  published/   Successfully published products
+  rejected/    Rejected artwork
+  archive/     Old artwork
 
 mockups/       Generated product mockups
 automation/

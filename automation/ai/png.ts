@@ -52,8 +52,8 @@ export interface RgbaColor {
 
 /**
  * Builds a valid, single-color RGBA PNG of the given dimensions. Used by
- * `DryRunImageProvider` to produce a realistic, fully-decodable image
- * without calling any real image generation API.
+ * tests to stand in for real (user-supplied) artwork without needing an
+ * actual image file on disk.
  */
 export function createSolidPng(width: number, height: number, color: RgbaColor): Buffer {
   const ihdrData = Buffer.alloc(13);

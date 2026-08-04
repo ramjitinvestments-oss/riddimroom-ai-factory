@@ -23,7 +23,42 @@ export interface PrintifyUploadResult {
   readonly printifyProductId: string;
   readonly printifyImageId: string;
   readonly createdAt: string; // ISO 8601
+  /** Mockup image URLs Printify generates automatically as part of product creation. */
+  readonly mockupUrls: readonly string[];
   readonly metadata: Record<string, unknown>;
+}
+
+/**
+ * Regenerates an *existing* Printify product's variants and print
+ * placement — never creates a new product. Used for the "reprint this
+ * design on a different garment color / fix the placement" case, as
+ * opposed to `uploadProduct`'s "this design has never been on Printify
+ * before" case. Printify's own artwork upload is reused unchanged
+ * (`printifyImageId`) — this never re-uploads or resizes the artwork
+ * file, only changes which variants (colors/sizes) it's printed on and
+ * where on the print area it's placed.
+ */
+export interface PrintifyUpdateRequest {
+  readonly jobId: string;
+  /** The existing Printify product id to update — never create a new one. */
+  readonly printifyProductId: string;
+  /** The already-uploaded artwork image id to reuse — never re-uploaded, never resized. */
+  readonly printifyImageId: string;
+  readonly title: string;
+  readonly description: string;
+  /** Retail price in USD, from the job's product.json. */
+  readonly priceUsd: number;
+  /** The variant ids (sizes x color) this product should offer after the update — e.g. the black-only variant set. */
+  readonly variantIds: readonly number[];
+}
+
+export interface PrintifyUpdateResult {
+  readonly jobId: string;
+  readonly provider: string;
+  readonly printifyProductId: string;
+  readonly updatedAt: string; // ISO 8601
+  /** Freshly regenerated mockup image URLs, one set per variant, each URL's query string carrying `camera_label` (e.g. `?camera_label=front-2`). */
+  readonly mockupUrls: readonly string[];
 }
 
 export interface PrintifyProvider {
@@ -31,4 +66,8 @@ export interface PrintifyProvider {
   uploadProduct(
     request: PrintifyUploadRequest,
   ): Promise<Result<PrintifyUploadResult, ExternalServiceError | ValidationError>>;
+  /** Updates variants/placement on an existing product and returns the newly regenerated mockups. Never creates a duplicate product. */
+  updateProductColorAndPlacement(
+    request: PrintifyUpdateRequest,
+  ): Promise<Result<PrintifyUpdateResult, ExternalServiceError | ValidationError>>;
 }

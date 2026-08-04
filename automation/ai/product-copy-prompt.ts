@@ -1,19 +1,19 @@
 /**
- * Prompt engineering for product listing copy, kept provider-agnostic the
- * same way `./prompt.ts` is for artwork: every provider gets the same
- * brand voice, SEO, safety, and platform constraints regardless of which
- * one actually writes the copy.
+ * Prompt engineering for product listing copy, kept provider-agnostic so
+ * every provider gets the same brand voice, SEO, safety, and platform
+ * constraints regardless of which one actually writes the copy.
  */
 
-const BRAND_VOICE_DIRECTIVE =
+/** Exported so other copy-writing prompts (e.g. ../artwork-analysis-prompt.ts) share the same brand voice/safety language instead of re-authoring it. */
+export const BRAND_VOICE_DIRECTIVE =
   "Caribbean streetwear brand voice: vibrant, confident, island-culture pride, tropical/reggae/carnival " +
   "energy, casual and inclusive tone that speaks to the Caribbean diaspora and streetwear fans";
 
-const SEO_DIRECTIVE =
+export const SEO_DIRECTIVE =
   "SEO-friendly: natural language a real shopper would actually search for, specific and descriptive, " +
   "no keyword stuffing, do not repeat the same word or phrase excessively across fields";
 
-const SAFETY_DIRECTIVE =
+export const SAFETY_DIRECTIVE =
   "commercial-safe: no copyrighted phrases, no song lyrics, no trademarked slogans or brand names, " +
   "no quotes attributed to real people, no references to existing franchises or celebrities";
 

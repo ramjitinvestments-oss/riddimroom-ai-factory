@@ -1,8 +1,14 @@
 /**
- * Orchestration for pipeline stage 3 (product generation): given an
- * existing job's `artwork.png` and `metadata.json` (produced by
- * `generate-artwork.ts`), generates Printify-/Shopify-ready product
- * listing copy and saves it as `product.json` in the same job directory.
+ * Orchestration for the composed-artwork pipeline's product-copy stage:
+ * given an existing job's `artwork.png` and `metadata.json` (produced by
+ * `generate-composed-artwork.ts` / `generate-collection-product.ts`),
+ * generates Printify-/Shopify-ready product listing copy and saves it as
+ * `product.json` in the same job directory.
+ *
+ * Dormant as of the Engine Freeze: the active production pipeline
+ * (`scripts/import-artwork.ts`) generates product copy directly from
+ * user-supplied artwork via artwork analysis instead of this stage. Kept
+ * as reusable infrastructure for the composed-artwork pipeline above.
  *
  * `generateProductCopy` holds all the logic and is fully unit-testable
  * (dependency-injected jobs root/logger/provider config); `main` is a
@@ -24,6 +30,7 @@ import { FileOperationError, ValidationError } from "../automation/shared/errors
 import type { ConfigError, ExternalServiceError } from "../automation/shared/errors.ts";
 import { ConsoleTransport, FileTransport } from "../automation/shared/log-transport.ts";
 import { Logger } from "../automation/shared/logger.ts";
+import { resolveRetailPrice } from "../automation/shared/pricing.ts";
 import { err, ok, type Result } from "../automation/shared/result.ts";
 
 export interface GeneratedProductCopy {
@@ -96,6 +103,13 @@ export async function generateProductCopy(
     return err(generation.error);
   }
 
+  // Pricing policy: shirts always use the fixed DEFAULT_SHIRT_PRICE, never
+  // the AI's suggestion — this is the single point that decision applies,
+  // since downstream upload stages read suggestedRetailPrice from this file
+  // verbatim for both Printify and Shopify. Non-shirt product types pass
+  // through the AI's suggestion unchanged (see automation/shared/pricing.ts).
+  const retailPrice = resolveRetailPrice(generation.value.copy.productType, generation.value.copy.suggestedRetailPrice);
+
   try {
     writeFileSync(
       productPath,
@@ -111,7 +125,8 @@ export async function generateProductCopy(
           tags: generation.value.copy.tags,
           productType: generation.value.copy.productType,
           collection: generation.value.copy.collection,
-          suggestedRetailPrice: generation.value.copy.suggestedRetailPrice,
+          suggestedRetailPrice: retailPrice,
+          aiSuggestedRetailPrice: generation.value.copy.suggestedRetailPrice,
           provider: generation.value.provider,
           model: generation.value.model,
           generatedAt: generation.value.generatedAt,
@@ -124,7 +139,9 @@ export async function generateProductCopy(
     return err(new FileOperationError("write", productPath, { cause: error }));
   }
 
-  logger.info("Product copy generated and saved", { metadata: { productPath } });
+  logger.info("Product copy generated and saved", {
+    metadata: { productPath, retailPrice, aiSuggestedRetailPrice: generation.value.copy.suggestedRetailPrice },
+  });
 
   return ok({ jobId, productPath });
 }

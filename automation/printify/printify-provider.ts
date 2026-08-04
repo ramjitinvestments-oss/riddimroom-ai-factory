@@ -17,7 +17,13 @@ import { ConsoleTransport } from "../shared/log-transport.ts";
 import { Logger } from "../shared/logger.ts";
 import { err, ok, type Result } from "../shared/result.ts";
 import { withRetry } from "../shared/retry.ts";
-import type { PrintifyProvider, PrintifyUploadRequest, PrintifyUploadResult } from "./types.ts";
+import type {
+  PrintifyProvider,
+  PrintifyUpdateRequest,
+  PrintifyUpdateResult,
+  PrintifyUploadRequest,
+  PrintifyUploadResult,
+} from "./types.ts";
 
 const PRINTIFY_API_BASE = "https://api.printify.com/v1";
 const DEFAULT_MAX_ATTEMPTS = 3;
@@ -163,6 +169,102 @@ export class PrintifyApiProvider implements PrintifyProvider {
     return { productId, imageId, mockupUrls };
   }
 
+  /**
+   * Updates variants/print-area on an *existing* Printify product —
+   * PUT /shops/{shopId}/products/{productId}.json, never
+   * POST .../products.json (which would create a duplicate). Reuses the
+   * already-uploaded artwork image id unchanged: no re-upload, no resize,
+   * matching "maintain the approved artwork scale" / "never overwrite
+   * approved artwork". Placement (x/y/scale) comes from this instance's
+   * placementX/Y/Scale exactly as `uploadProduct` uses them — the
+   * approved upper-chest standard, not recalculated here. Printify
+   * regenerates every mockup image for the new variant set as part of
+   * this call; the response's `images` carry the new mockup URLs the same
+   * way product creation does.
+   */
+  async updateProductColorAndPlacement(
+    request: PrintifyUpdateRequest,
+  ): Promise<Result<PrintifyUpdateResult, ExternalServiceError | ValidationError>> {
+    if (request.printifyProductId.trim().length === 0) {
+      return err(new ValidationError(["printifyProductId must not be blank"]));
+    }
+    if (request.printifyImageId.trim().length === 0) {
+      return err(new ValidationError(["printifyImageId must not be blank"]));
+    }
+    if (request.jobId.trim().length === 0) {
+      return err(new ValidationError(["jobId must not be blank"]));
+    }
+    if (request.variantIds.length === 0) {
+      return err(new ValidationError(["no variant ids supplied for the update"]));
+    }
+
+    const jobLogger = this.logger.withJob(request.jobId, "update-printify-product");
+
+    try {
+      const mockupUrls = await jobLogger.time(
+        "Update Printify product",
+        () =>
+          withRetry(() => this.callUpdateProduct(request), {
+            maxAttempts: this.maxAttempts,
+            baseDelayMs: this.baseDelayMs,
+            isRetryable,
+          }),
+        { printifyProductId: request.printifyProductId, variantIds: request.variantIds },
+      );
+
+      return ok({
+        jobId: request.jobId,
+        provider: this.name,
+        printifyProductId: request.printifyProductId,
+        updatedAt: new Date().toISOString(),
+        mockupUrls,
+      });
+    } catch (error) {
+      if (error instanceof ExternalServiceError || error instanceof ValidationError) {
+        return err(error);
+      }
+      return err(new ExternalServiceError("printify", "product update failed", { cause: error }));
+    }
+  }
+
+  private async callUpdateProduct(request: PrintifyUpdateRequest): Promise<string[]> {
+    const priceCents = Math.round(request.priceUsd * 100);
+    const body = await this.request<CreateProductResponseBody>(
+      `/shops/${this.shopId}/products/${request.printifyProductId}.json`,
+      {
+        title: request.title,
+        description: request.description,
+        blueprint_id: this.blueprintId,
+        print_provider_id: this.printProviderId,
+        variants: request.variantIds.map((id) => ({ id, price: priceCents, is_enabled: true })),
+        print_areas: [
+          {
+            variant_ids: request.variantIds,
+            placeholders: [
+              {
+                position: "front",
+                images: [
+                  {
+                    id: request.printifyImageId,
+                    x: this.placementX,
+                    y: this.placementY,
+                    scale: this.placementScale,
+                    angle: 0,
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+      "PUT",
+    );
+
+    return (body.images ?? [])
+      .map((image) => image.src)
+      .filter((src): src is string => typeof src === "string" && src.length > 0);
+  }
+
   private async uploadImage(request: PrintifyUploadRequest): Promise<string> {
     const body = await this.request<UploadImageResponseBody>("/uploads/images.json", {
       file_name: `${request.jobId}.png`,
@@ -210,11 +312,15 @@ export class PrintifyApiProvider implements PrintifyProvider {
     return { productId: body.id, mockupUrls };
   }
 
-  private async request<TBody extends object>(path: string, payload: unknown): Promise<TBody> {
+  private async request<TBody extends object>(
+    path: string,
+    payload: unknown,
+    method: "POST" | "PUT" = "POST",
+  ): Promise<TBody> {
     let response: Response;
     try {
       response = await this.fetchImpl(`${PRINTIFY_API_BASE}${path}`, {
-        method: "POST",
+        method,
         headers: {
           Authorization: `Bearer ${this.apiKey}`,
           "Content-Type": "application/json",

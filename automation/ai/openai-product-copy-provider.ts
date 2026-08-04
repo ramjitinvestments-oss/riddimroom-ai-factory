@@ -1,11 +1,10 @@
 /**
  * `ProductCopyProvider` implementation backed by OpenAI's Chat Completions
- * API, called directly via `fetch` (no SDK dependency) — mirrors
- * `./openai-provider.ts`'s structure exactly. Sends the generated artwork
- * as a vision input alongside the design brief, and uses structured
- * outputs (`response_format: json_schema`) so the response is guaranteed
- * to match `PRODUCT_COPY_JSON_SCHEMA` rather than hoping the model
- * free-forms valid JSON.
+ * API, called directly via `fetch` (no SDK dependency). Sends the
+ * (user-supplied) artwork as a vision input alongside the design brief,
+ * and uses structured outputs (`response_format: json_schema`) so the
+ * response is guaranteed to match `PRODUCT_COPY_JSON_SCHEMA` rather than
+ * hoping the model free-forms valid JSON.
  */
 import { ExternalServiceError, ValidationError } from "../shared/errors.ts";
 import { ConsoleTransport } from "../shared/log-transport.ts";
