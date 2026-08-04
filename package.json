@@ -11,7 +11,8 @@
     "typecheck": "tsc",
     "test": "node --disable-warning=ExperimentalWarning --test \"tests/**/*.test.ts\"",
     "preflight": "node --disable-warning=ExperimentalWarning --experimental-strip-types scripts/preflight-check.ts",
-    "launch:apparel": "node --disable-warning=ExperimentalWarning --experimental-strip-types scripts/launch-apparel.ts"
+    "launch:apparel": "node --disable-warning=ExperimentalWarning --experimental-strip-types scripts/launch-apparel.ts",
+    "lookup:black-variants": "node --disable-warning=ExperimentalWarning --experimental-strip-types scripts/lookup-black-variant-ids.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

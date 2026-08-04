@@ -118,8 +118,9 @@ export async function runPreflightCheck(options: PreflightCheckOptions = {}): Pr
           name: "PRINTIFY_BLACK_VARIANT_IDS set",
           status: "fail",
           detail:
-            "Not set or empty. Look these up via Printify's Catalog API — see the header comment in " +
-            "scripts/regenerate-printify-product.ts for the exact command.",
+            "Not set or empty. Run `node --experimental-strip-types scripts/lookup-black-variant-ids.ts` to " +
+            "populate it automatically from Printify's real Catalog API, or see the header comment in " +
+            "scripts/regenerate-printify-product.ts for the equivalent manual curl command.",
         },
   );
 

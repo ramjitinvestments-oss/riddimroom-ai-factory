@@ -30,7 +30,13 @@
  * `variantIds` directly via `options` — this script never guesses a color
  * mapping from anything in this repository). Printify's variant id
  * numbering is catalog-version- and account-specific; the only source of
- * truth is Printify's own Catalog API:
+ * truth is Printify's own Catalog API. Run this once to populate it
+ * automatically (calls the Catalog API for real and writes the result into
+ * .env — see scripts/lookup-black-variant-ids.ts):
+ *
+ *   node --experimental-strip-types scripts/lookup-black-variant-ids.ts
+ *
+ * Or, equivalently, by hand:
  *
  *   curl -s "https://api.printify.com/v1/catalog/blueprints/$PRINTIFY_BLUEPRINT_ID/print_providers/$PRINTIFY_PRINT_PROVIDER_ID/variants.json" \
  *     -H "Authorization: Bearer $PRINTIFY_API_KEY" \

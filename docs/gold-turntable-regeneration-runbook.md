@@ -166,7 +166,17 @@ call — there's no separate "regenerate mockups" API call to make.
 
 Nothing in this repository can guess which Printify variant ids
 correspond to which color — that mapping is account- and
-catalog-specific. Look it up for real, once per blueprint/print-provider:
+catalog-specific. Look it up for real, once per blueprint/print-provider,
+using `scripts/lookup-black-variant-ids.ts` — it calls Printify's own
+Catalog API, filters for variants whose color matches "black", and writes
+the result straight into `.env` as `PRINTIFY_BLACK_VARIANT_IDS` (never
+guesses; fails clearly and writes nothing if no variant matches):
+
+```bash
+npm run lookup:black-variants
+```
+
+Equivalently, by hand, if you'd rather inspect the raw API response first:
 
 ```bash
 curl -s "https://api.printify.com/v1/catalog/blueprints/$PRINTIFY_BLUEPRINT_ID/print_providers/$PRINTIFY_PRINT_PROVIDER_ID/variants.json" \
@@ -174,8 +184,8 @@ curl -s "https://api.printify.com/v1/catalog/blueprints/$PRINTIFY_BLUEPRINT_ID/p
   | jq '.variants[] | select(.options.color | test("Black"; "i")) | {id, title}'
 ```
 
-Add the resulting ids (one per size, same count as `PRINTIFY_VARIANT_IDS`
-today) to `.env`:
+...then add the resulting ids (one per size, same count as
+`PRINTIFY_VARIANT_IDS` today) to `.env` yourself:
 
 ```bash
 PRINTIFY_BLACK_VARIANT_IDS=<comma-separated ids from above>
