@@ -13,6 +13,10 @@ name: Launch Apparel (Production)
 # duplicate that validation, it only supplies the secrets that check reads.
 
 on:
+  push:
+    branches:
+      - master
+
   workflow_dispatch:
     inputs:
       confirm:
