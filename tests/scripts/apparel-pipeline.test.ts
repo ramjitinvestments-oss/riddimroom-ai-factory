@@ -149,10 +149,14 @@ test("runApparelPipeline reuses the existing Printify product id (never creates 
   assert.equal(result.value.printifyProductId, "printify-prod-999");
   assert.equal(result.value.reusedImageId, "printify-img-999");
 
-  // Exactly one call, PUT to the existing product id — never POST /products.json (create).
-  assert.equal(requests.length, 1);
-  assert.equal(requests[0]!.method, "PUT");
+  // Exactly two calls against the existing product id — a GET (to read current variant
+  // enablement, so the update can explicitly disable anything not in the new target set) then a
+  // PUT — never a POST /products.json (create).
+  assert.equal(requests.length, 2);
+  assert.equal(requests[0]!.method, "GET");
   assert.match(requests[0]!.url, /\/products\/printify-prod-999\.json$/);
+  assert.equal(requests[1]!.method, "PUT");
+  assert.match(requests[1]!.url, /\/products\/printify-prod-999\.json$/);
 });
 
 test("runApparelPipeline refuses to fabricate a completed create-path run when the publish stage was only a dry run", async (t) => {

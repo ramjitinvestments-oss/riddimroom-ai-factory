@@ -92,12 +92,14 @@ interface CreateProductResponseBody {
   readonly images?: ReadonlyArray<{ readonly src?: string }>;
 }
 
-/** Response shape of GET /shops/{shopId}/products/{productId}.json — only the fields publishProductToShopify needs. */
+/** Response shape of GET /shops/{shopId}/products/{productId}.json — only the fields publishProductToShopify and callUpdateProduct need. */
 interface GetProductResponseBody {
   readonly id?: string;
   readonly is_locked?: boolean;
   /** Populated by Printify once its integration finishes creating the product in the connected Shopify store. Null/absent until then. */
   readonly external?: { readonly id?: string; readonly handle?: string } | null;
+  /** The product's current variant enablement — read by callUpdateProduct to know what to explicitly disable. */
+  readonly variants?: ReadonlyArray<{ readonly id?: number; readonly is_enabled?: boolean }>;
 }
 
 /** Response shape of GET /shops/{shopId}/products.json — only the fields findProductIdByTitle needs. */
@@ -256,8 +258,36 @@ export class PrintifyApiProvider implements PrintifyProvider {
     }
   }
 
+  /**
+   * Printify's PUT .../products/{id}.json does not treat `variants` as a
+   * full replacement of the product's variant enablement — any variant id
+   * not mentioned in the payload keeps whatever is_enabled state it already
+   * had (e.g. the initial creation color set from PRINTIFY_VARIANT_IDS, or
+   * a previous color switch). Sending only the new target variant ids as
+   * is_enabled:true therefore leaves old variants still enabled while
+   * print_areas only covers the new set — Printify then rejects the
+   * request with error 8251 ("Variants do not match selected blueprint and
+   * print provider... make sure that all product variants are present in
+   * the print_areas.*.variant_ids field"), because an enabled variant has
+   * no print area. Fetching current state first and explicitly disabling
+   * anything not in the target set closes that gap. (Root-caused
+   * 2026-08-05 against the real API after PRINTIFY_BLACK_VARIANT_IDS was
+   * confirmed NOT stale — see scripts/lookup-black-variant-ids.ts.)
+   */
   private async callUpdateProduct(request: PrintifyUpdateRequest): Promise<string[]> {
     const priceCents = Math.round(request.priceUsd * 100);
+
+    const current = await this.request<GetProductResponseBody>(
+      `/shops/${this.shopId}/products/${request.printifyProductId}.json`,
+      undefined,
+      "GET",
+    );
+    const currentlyEnabledIds = (current.variants ?? [])
+      .filter((v): v is { id: number; is_enabled: true } => v.is_enabled === true && typeof v.id === "number")
+      .map((v) => v.id);
+    const targetSet = new Set(request.variantIds);
+    const idsToDisable = currentlyEnabledIds.filter((id) => !targetSet.has(id));
+
     const body = await this.request<CreateProductResponseBody>(
       `/shops/${this.shopId}/products/${request.printifyProductId}.json`,
       {
@@ -265,7 +295,10 @@ export class PrintifyApiProvider implements PrintifyProvider {
         description: request.description,
         blueprint_id: this.blueprintId,
         print_provider_id: this.printProviderId,
-        variants: request.variantIds.map((id) => ({ id, price: priceCents, is_enabled: true })),
+        variants: [
+          ...request.variantIds.map((id) => ({ id, price: priceCents, is_enabled: true })),
+          ...idsToDisable.map((id) => ({ id, price: priceCents, is_enabled: false })),
+        ],
         print_areas: [
           {
             variant_ids: request.variantIds,

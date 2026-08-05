@@ -375,6 +375,72 @@ test("publishProductToShopify does not call fetch for a blank printifyProductId"
   assert.equal(calls.length, 0);
 });
 
+test("updateProductColorAndPlacement explicitly disables previously-enabled variants that aren't in the new target set", async () => {
+  const { fetchImpl, calls } = stubFetch([
+    // GET current product state: two variants enabled from the initial creation color.
+    () => jsonResponse(200, { id: "prod-1", variants: [{ id: 111, is_enabled: true }, { id: 222, is_enabled: true }] }),
+    // PUT the update.
+    () => jsonResponse(200, { id: "prod-1" }),
+  ]);
+  const provider = new PrintifyApiProvider(baseOptions(fetchImpl));
+
+  const result = await provider.updateProductColorAndPlacement({
+    jobId: "job-1",
+    printifyProductId: "prod-1",
+    printifyImageId: "img-1",
+    title: "Big Up Yourself T-Shirt",
+    description: "A bold Caribbean design.",
+    priceUsd: 24.99,
+    variantIds: [333, 444],
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0]?.url, "https://api.printify.com/v1/shops/shop-1/products/prod-1.json");
+  const putCall = calls[1];
+  assert.equal(putCall?.url, "https://api.printify.com/v1/shops/shop-1/products/prod-1.json");
+  const variants = putCall?.body.variants as Array<{ id: number; is_enabled: boolean }>;
+  assert.deepEqual(
+    variants.map((v) => ({ id: v.id, is_enabled: v.is_enabled })),
+    [
+      { id: 333, is_enabled: true },
+      { id: 444, is_enabled: true },
+      { id: 111, is_enabled: false },
+      { id: 222, is_enabled: false },
+    ],
+  );
+  const printAreas = putCall?.body.print_areas as Array<{ variant_ids: number[] }>;
+  assert.deepEqual(printAreas[0]?.variant_ids, [333, 444]);
+});
+
+test("updateProductColorAndPlacement does not disable variants that are already in the target set", async () => {
+  const { fetchImpl, calls } = stubFetch([
+    () => jsonResponse(200, { id: "prod-1", variants: [{ id: 333, is_enabled: true }, { id: 999, is_enabled: false }] }),
+    () => jsonResponse(200, { id: "prod-1" }),
+  ]);
+  const provider = new PrintifyApiProvider(baseOptions(fetchImpl));
+
+  await provider.updateProductColorAndPlacement({
+    jobId: "job-1",
+    printifyProductId: "prod-1",
+    printifyImageId: "img-1",
+    title: "Big Up Yourself T-Shirt",
+    description: "A bold Caribbean design.",
+    priceUsd: 24.99,
+    variantIds: [333, 444],
+  });
+
+  const variants = calls[1]?.body.variants as Array<{ id: number; is_enabled: boolean }>;
+  // 999 was already disabled, so no need to send a redundant disable for it.
+  assert.deepEqual(
+    variants.map((v) => ({ id: v.id, is_enabled: v.is_enabled })),
+    [
+      { id: 333, is_enabled: true },
+      { id: 444, is_enabled: true },
+    ],
+  );
+});
+
 test("findProductIdByTitle finds a case-insensitive exact match on the first page", async () => {
   const { fetchImpl, calls } = stubFetch([
     () =>
