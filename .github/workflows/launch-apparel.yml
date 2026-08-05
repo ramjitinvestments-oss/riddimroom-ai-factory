@@ -12,11 +12,19 @@ name: Launch Apparel (Production)
 # if anything required is missing or unreachable — this workflow does not
 # duplicate that validation, it only supplies the secrets that check reads.
 
+# CHANGED 2026-08-05: the `push` trigger below is intentionally removed.
+# Root cause of a real production incident: this workflow's launch step has
+# no memory across separate GitHub Actions runs (each run is a fresh
+# checkout; the generated designs/processed/*.json files that
+# scripts/import-artwork.ts uses to detect "already done" are gitignored,
+# never committed). Every ordinary code-fix commit pushed to master while
+# debugging a failed launch re-triggered this workflow and re-ran the
+# *entire* batch from scratch, creating duplicate Shopify products for
+# every design that had already succeeded. `workflow_dispatch` (which
+# still requires typing LAUNCH) is now the only trigger — a production
+# launch must always be a deliberate, explicit action, never a side effect
+# of pushing an unrelated code change.
 on:
-  push:
-    branches:
-      - master
-
   workflow_dispatch:
     inputs:
       confirm:
