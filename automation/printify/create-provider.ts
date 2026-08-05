@@ -74,6 +74,7 @@ export interface CreatePrintifyProviderOptions {
   readonly env?: NodeJS.ProcessEnv;
   readonly logger?: Logger;
   readonly fetchImpl?: typeof fetch;
+  readonly sleepImpl?: (ms: number) => Promise<void>;
 }
 
 export function createPrintifyProvider(
@@ -151,6 +152,7 @@ export function createPrintifyProvider(
         : {}),
       ...(options.logger !== undefined ? { logger: options.logger } : {}),
       ...(options.fetchImpl !== undefined ? { fetchImpl: options.fetchImpl } : {}),
+      ...(options.sleepImpl !== undefined ? { sleepImpl: options.sleepImpl } : {}),
     }),
   );
 }

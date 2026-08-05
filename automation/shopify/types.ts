@@ -90,6 +90,30 @@ export interface ShopifyReplaceImagesResult {
   readonly updatedAt: string; // ISO 8601
 }
 
+/**
+ * Applies the metadata Printify's own publish integration doesn't set —
+ * tags, SEO metafields, collection assignment — to a Shopify product that
+ * a *different* system (Printify's publish-to-Shopify integration, not
+ * this codebase) created. See `PrintifyPublishRequest`'s doc comment in
+ * `automation/printify/types.ts` for why product creation itself is
+ * delegated to Printify.
+ */
+export interface ShopifyFinalizeExternalProductRequest {
+  readonly jobId: string;
+  /** The Shopify product id Printify's integration created — never creates a new product. */
+  readonly shopifyProductId: string;
+  readonly tags: readonly string[];
+  readonly seoTitle?: string;
+  readonly seoDescription?: string;
+  readonly collection?: string;
+}
+
+export interface ShopifyFinalizeExternalProductResult {
+  readonly jobId: string;
+  readonly shopifyProductId: string;
+  readonly updatedAt: string; // ISO 8601
+}
+
 export interface ShopifyProvider {
   readonly name: string;
   publishProduct(
@@ -113,4 +137,8 @@ export interface ShopifyProvider {
   replaceProductImages(
     request: ShopifyReplaceImagesRequest,
   ): Promise<Result<ShopifyReplaceImagesResult, ExternalServiceError | ValidationError>>;
+  /** Sets tags/SEO/collection on a product this provider did not itself create — see the type's doc comment. */
+  finalizeExternalProduct(
+    request: ShopifyFinalizeExternalProductRequest,
+  ): Promise<Result<ShopifyFinalizeExternalProductResult, ExternalServiceError | ValidationError>>;
 }

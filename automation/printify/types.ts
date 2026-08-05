@@ -61,6 +61,45 @@ export interface PrintifyUpdateResult {
   readonly mockupUrls: readonly string[];
 }
 
+/**
+ * Publishes an *existing* Printify product to the Printify shop's
+ * connected sales channel (a real, OAuth-linked Shopify store — see
+ * `PRINTIFY_SHOP_ID`'s doc comment in `.env.example`). This is Printify's
+ * own native integration: Printify creates the Shopify product itself,
+ * with the full size/color variant matrix and Printify fulfillment
+ * already wired to each Shopify variant. This is deliberately different
+ * from (and replaces, for the create path) building a Shopify product
+ * directly via the Shopify Admin API — a hand-built product has no
+ * Printify fulfillment link and, in practice, ends up as a single
+ * generic variant instead of the real size/color matrix (confirmed in
+ * production 2026-08-05: every design published through the old
+ * `scripts/publish-to-shopify.ts` path came out as one "Default Title"
+ * variant with 0 inventory, not sellable).
+ */
+export interface PrintifyPublishRequest {
+  readonly jobId: string;
+  readonly printifyProductId: string;
+  /**
+   * How long to keep polling for Printify to finish creating the Shopify
+   * product before giving up (Printify's publish call itself only
+   * *starts* the process — see `pollIntervalMs`). Defaults to 60000 (60s).
+   */
+  readonly maxWaitMs?: number;
+  /** How often to poll while waiting. Defaults to 3000 (3s). */
+  readonly pollIntervalMs?: number;
+}
+
+export interface PrintifyPublishResult {
+  readonly jobId: string;
+  readonly provider: string;
+  readonly printifyProductId: string;
+  /** The Shopify product id Printify's own integration created — this shop's real, fulfillment-linked product. */
+  readonly shopifyProductId: string;
+  /** Shopify handle Printify's integration assigned, if it reported one. */
+  readonly shopifyHandle: string | null;
+  readonly publishedAt: string; // ISO 8601
+}
+
 export interface PrintifyProvider {
   readonly name: string;
   uploadProduct(
@@ -70,4 +109,14 @@ export interface PrintifyProvider {
   updateProductColorAndPlacement(
     request: PrintifyUpdateRequest,
   ): Promise<Result<PrintifyUpdateResult, ExternalServiceError | ValidationError>>;
+  /**
+   * Publishes an existing Printify product to the shop's connected Shopify
+   * store via Printify's own integration, and waits (polling) until
+   * Printify reports the resulting Shopify product id. See
+   * `PrintifyPublishRequest`'s doc comment for why this exists instead of
+   * building the Shopify product directly.
+   */
+  publishProductToShopify(
+    request: PrintifyPublishRequest,
+  ): Promise<Result<PrintifyPublishResult, ExternalServiceError | ValidationError>>;
 }

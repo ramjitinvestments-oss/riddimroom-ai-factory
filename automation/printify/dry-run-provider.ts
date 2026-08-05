@@ -9,6 +9,8 @@ import { ValidationError, type ExternalServiceError } from "../shared/errors.ts"
 import { err, ok, type Result } from "../shared/result.ts";
 import type {
   PrintifyProvider,
+  PrintifyPublishRequest,
+  PrintifyPublishResult,
   PrintifyUpdateRequest,
   PrintifyUpdateResult,
   PrintifyUploadRequest,
@@ -73,6 +75,26 @@ export class DryRunPrintifyProvider implements PrintifyProvider {
       printifyProductId: request.printifyProductId,
       updatedAt: this.now().toISOString(),
       mockupUrls: [],
+    });
+  }
+
+  async publishProductToShopify(
+    request: PrintifyPublishRequest,
+  ): Promise<Result<PrintifyPublishResult, ExternalServiceError | ValidationError>> {
+    if (request.printifyProductId.trim().length === 0) {
+      return err(new ValidationError(["printifyProductId must not be blank"]));
+    }
+    if (request.jobId.trim().length === 0) {
+      return err(new ValidationError(["jobId must not be blank"]));
+    }
+
+    return ok({
+      jobId: request.jobId,
+      provider: this.name,
+      printifyProductId: request.printifyProductId,
+      shopifyProductId: `dry-run-shopify-product-${request.jobId}`,
+      shopifyHandle: `dry-run-${request.jobId}`,
+      publishedAt: this.now().toISOString(),
     });
   }
 }

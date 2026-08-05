@@ -282,3 +282,95 @@ test("PrintifyApiProvider logs a failed timing entry bound to the job id when up
   assert.ok(failed);
   assert.equal(failed?.level, "error");
 });
+
+test("publishProductToShopify calls publish.json then returns the Shopify id once the first poll already has it", async () => {
+  const { fetchImpl, calls } = stubFetch([
+    () => jsonResponse(200, {}), // POST .../publish.json — Printify's real response is an empty ack
+    () => jsonResponse(200, { id: "prod-1", external: { id: "shop-prod-99", handle: "big-up-tee" } }),
+  ]);
+  const provider = new PrintifyApiProvider(baseOptions(fetchImpl, { sleepImpl: async () => {} }));
+
+  const result = await provider.publishProductToShopify({ jobId: "job-1", printifyProductId: "prod-1" });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.value.shopifyProductId, "shop-prod-99");
+  assert.equal(result.value.shopifyHandle, "big-up-tee");
+  assert.equal(calls.length, 2);
+  assert.match(calls[0]?.url ?? "", /\/shops\/shop-1\/products\/prod-1\/publish\.json$/);
+  assert.deepEqual(calls[0]?.body, { title: true, description: true, images: true, variants: true, tags: false });
+});
+
+test("publishProductToShopify polls until Printify reports the external Shopify id", async () => {
+  let sleeps = 0;
+  const { fetchImpl, calls } = stubFetch([
+    () => jsonResponse(200, {}), // publish
+    () => jsonResponse(200, { id: "prod-1", external: null }), // still processing
+    () => jsonResponse(200, { id: "prod-1", external: {} }), // still no id yet
+    () => jsonResponse(200, { id: "prod-1", external: { id: "shop-prod-99" } }), // done
+  ]);
+  const provider = new PrintifyApiProvider(
+    baseOptions(fetchImpl, {
+      sleepImpl: async () => {
+        sleeps += 1;
+      },
+    }),
+  );
+
+  const result = await provider.publishProductToShopify({ jobId: "job-1", printifyProductId: "prod-1" });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.value.shopifyProductId, "shop-prod-99");
+  assert.equal(result.value.shopifyHandle, null);
+  assert.equal(calls.length, 4);
+  assert.equal(sleeps, 2);
+});
+
+test("publishProductToShopify gives up once maxWaitMs elapses without an external id, without ever re-publishing", async () => {
+  const { fetchImpl, calls } = stubFetch([
+    () => jsonResponse(200, {}), // publish
+    () => jsonResponse(200, { id: "prod-1", external: null }), // poll 1 — deadline not yet reached
+    () => jsonResponse(200, { id: "prod-1", external: null }), // poll 2 — deadline reached, gives up
+  ]);
+  // Deterministic fake clock: 0 at start, advances by 10ms per call. With maxWaitMs=15 the
+  // deadline (10) is still in the future after poll 1 (nowImpl()=10) but reached at poll 2
+  // (nowImpl()=20) — no dependence on real wall-clock time, so this can never be flaky.
+  let clock = 0;
+  const provider = new PrintifyApiProvider(
+    baseOptions(fetchImpl, {
+      sleepImpl: async () => {},
+      nowImpl: () => {
+        const value = clock;
+        clock += 10;
+        return value;
+      },
+    }),
+  );
+
+  const result = await provider.publishProductToShopify({
+    jobId: "job-1",
+    printifyProductId: "prod-1",
+    maxWaitMs: 15,
+    pollIntervalMs: 1,
+  });
+
+  assert.equal(result.ok, false);
+  if (!result.ok) {
+    assert.match(result.error.message, /had not reported a Shopify product id/);
+  }
+  // Exactly one publish call — never called publish.json twice even after giving up.
+  const publishCalls = calls.filter((c) => c.url.endsWith("/publish.json"));
+  assert.equal(publishCalls.length, 1);
+  assert.equal(calls.length, 3);
+});
+
+test("publishProductToShopify does not call fetch for a blank printifyProductId", async () => {
+  const { fetchImpl, calls } = stubFetch([() => jsonResponse(200, {})]);
+  const provider = new PrintifyApiProvider(baseOptions(fetchImpl));
+
+  const result = await provider.publishProductToShopify({ jobId: "job-1", printifyProductId: "  " });
+
+  assert.equal(result.ok, false);
+  assert.equal(calls.length, 0);
+});

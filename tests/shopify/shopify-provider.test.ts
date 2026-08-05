@@ -464,3 +464,62 @@ test("ShopifyApiProvider logs a completed timing entry bound to the job id on su
   assert.equal(completed?.jobId, "job-1");
   assert.equal(completed?.stage, "publish-shopify");
 });
+
+test("finalizeExternalProduct sets tags via a PUT, then SEO metafields, then collection assignment", async () => {
+  const { fetchImpl, calls } = stubFetch([
+    () => jsonResponse(200, { product: { id: 555 } }), // PUT tags
+    () => jsonResponse(200, {}), // SEO title metafield
+    () => jsonResponse(200, {}), // SEO description metafield
+    () => jsonResponse(200, { custom_collections: [] }), // findOrCreateCollection: lookup (none found)
+    () => jsonResponse(200, { custom_collection: { id: 77, title: "Caribbean Dictionary Series" } }), // create collection
+    () => jsonResponse(200, {}), // link product to collection
+  ]);
+  const provider = new ShopifyApiProvider(baseOptions(fetchImpl));
+
+  const result = await provider.finalizeExternalProduct({
+    jobId: "job-1",
+    shopifyProductId: "555",
+    tags: ["caribbean", "streetwear"],
+    seoTitle: "Big Up Yourself Tee",
+    seoDescription: "Bold Caribbean streetwear.",
+    collection: "Caribbean Dictionary Series",
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.value.shopifyProductId, "555");
+  assert.equal(calls.length, 6);
+  assert.equal(calls[0]?.method, "PUT");
+  assert.match(calls[0]?.url ?? "", /\/products\/555\.json$/);
+  const productBody = calls[0]?.body?.product as { id: number; tags: string };
+  assert.equal(productBody.tags, "caribbean, streetwear");
+  assert.match(calls[1]?.url ?? "", /\/products\/555\/metafields\.json$/);
+  assert.match(calls[5]?.url ?? "", /\/collects\.json$/);
+  const collectBody = calls[5]?.body?.collect as { product_id: number; collection_id: number };
+  assert.equal(collectBody.product_id, 555);
+  assert.equal(collectBody.collection_id, 77);
+});
+
+test("finalizeExternalProduct skips SEO/collection calls that weren't requested", async () => {
+  const { fetchImpl, calls } = stubFetch([() => jsonResponse(200, { product: { id: 555 } })]);
+  const provider = new ShopifyApiProvider(baseOptions(fetchImpl));
+
+  const result = await provider.finalizeExternalProduct({
+    jobId: "job-1",
+    shopifyProductId: "555",
+    tags: ["caribbean"],
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(calls.length, 1); // only the tags PUT — no SEO metafield or collection calls
+});
+
+test("finalizeExternalProduct does not call fetch for a blank shopifyProductId", async () => {
+  const { fetchImpl, calls } = stubFetch([() => jsonResponse(200, {})]);
+  const provider = new ShopifyApiProvider(baseOptions(fetchImpl));
+
+  const result = await provider.finalizeExternalProduct({ jobId: "job-1", shopifyProductId: " ", tags: [] });
+
+  assert.equal(result.ok, false);
+  assert.equal(calls.length, 0);
+});

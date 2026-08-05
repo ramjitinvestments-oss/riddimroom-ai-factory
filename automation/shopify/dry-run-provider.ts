@@ -17,6 +17,8 @@
 import { ValidationError, type ExternalServiceError } from "../shared/errors.ts";
 import { err, ok, type Result } from "../shared/result.ts";
 import type {
+  ShopifyFinalizeExternalProductRequest,
+  ShopifyFinalizeExternalProductResult,
   ShopifyProductDetails,
   ShopifyProvider,
   ShopifyPublishRequest,
@@ -121,6 +123,34 @@ export class DryRunShopifyProvider implements ShopifyProvider {
       shopifyProductId: request.shopifyProductId,
       addedImageIds: request.images.map((_, i) => `dry-run-image-${request.jobId}-${i}`),
       removedImageIds: [],
+      updatedAt: this.now().toISOString(),
+    });
+  }
+
+  async finalizeExternalProduct(
+    request: ShopifyFinalizeExternalProductRequest,
+  ): Promise<Result<ShopifyFinalizeExternalProductResult, ExternalServiceError | ValidationError>> {
+    if (request.shopifyProductId.trim().length === 0) {
+      return err(new ValidationError(["shopifyProductId must not be blank"]));
+    }
+    if (request.jobId.trim().length === 0) {
+      return err(new ValidationError(["jobId must not be blank"]));
+    }
+
+    const existing = this.published.get(request.shopifyProductId);
+    if (existing !== undefined) {
+      this.published.set(request.shopifyProductId, {
+        ...existing,
+        tags: request.tags,
+        ...(request.seoTitle !== undefined ? { seoTitle: request.seoTitle } : {}),
+        ...(request.seoDescription !== undefined ? { seoDescription: request.seoDescription } : {}),
+        ...(request.collection !== undefined ? { collection: request.collection } : {}),
+      });
+    }
+
+    return ok({
+      jobId: request.jobId,
+      shopifyProductId: request.shopifyProductId,
       updatedAt: this.now().toISOString(),
     });
   }

@@ -11,6 +11,8 @@ import { err, ok, type Result } from "../shared/result.ts";
 import { withRetry } from "../shared/retry.ts";
 import type { AccessTokenProvider } from "./client-credentials-token-provider.ts";
 import type {
+  ShopifyFinalizeExternalProductRequest,
+  ShopifyFinalizeExternalProductResult,
   ShopifyProductDetails,
   ShopifyProductVariant,
   ShopifyProvider,
@@ -434,6 +436,87 @@ export class ShopifyApiProvider implements ShopifyProvider {
     }
   }
 
+  /**
+   * Sets tags, SEO metafields, and collection assignment on a product this
+   * provider did not create — used for the Printify-native publish path
+   * (see `ShopifyFinalizeExternalProductRequest`'s doc comment). Reuses
+   * exactly the same private helpers (`setMetafield`,
+   * `findOrCreateCollection`, `linkProductToCollection`) `publishProduct`
+   * already relies on for the same fields, just aimed at an id this class
+   * didn't itself generate.
+   */
+  async finalizeExternalProduct(
+    request: ShopifyFinalizeExternalProductRequest,
+  ): Promise<Result<ShopifyFinalizeExternalProductResult, ExternalServiceError | ValidationError>> {
+    if (request.shopifyProductId.trim().length === 0) {
+      return err(new ValidationError(["shopifyProductId must not be blank"]));
+    }
+    if (request.jobId.trim().length === 0) {
+      return err(new ValidationError(["jobId must not be blank"]));
+    }
+
+    const jobLogger = this.logger.withJob(request.jobId, "finalize-external-shopify-product");
+
+    try {
+      await jobLogger.time(
+        "Finalize externally-published Shopify product",
+        () => this.callFinalizeExternalProduct(request),
+        { shopifyProductId: request.shopifyProductId },
+      );
+
+      return ok({
+        jobId: request.jobId,
+        shopifyProductId: request.shopifyProductId,
+        updatedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      if (error instanceof ExternalServiceError || error instanceof ValidationError) {
+        return err(error);
+      }
+      return err(new ExternalServiceError("shopify", "finalizing externally-published product failed", { cause: error }));
+    }
+  }
+
+  private async callFinalizeExternalProduct(request: ShopifyFinalizeExternalProductRequest): Promise<void> {
+    await withRetry(() => this.setTags(request.shopifyProductId, request.tags), {
+      maxAttempts: this.maxAttempts,
+      baseDelayMs: this.baseDelayMs,
+      isRetryable,
+    });
+
+    if (request.seoTitle !== undefined) {
+      await withRetry(() => this.setMetafield(request.shopifyProductId, SEO_TITLE_TAG_KEY, request.seoTitle!, "single_line_text_field"), {
+        maxAttempts: this.maxAttempts,
+        baseDelayMs: this.baseDelayMs,
+        isRetryable,
+      });
+    }
+    if (request.seoDescription !== undefined) {
+      await withRetry(
+        () => this.setMetafield(request.shopifyProductId, SEO_DESCRIPTION_TAG_KEY, request.seoDescription!, "multi_line_text_field"),
+        { maxAttempts: this.maxAttempts, baseDelayMs: this.baseDelayMs, isRetryable },
+      );
+    }
+    if (request.collection !== undefined && request.collection.trim().length > 0) {
+      const collectionId = await withRetry(() => this.findOrCreateCollection(request.collection!), {
+        maxAttempts: this.maxAttempts,
+        baseDelayMs: this.baseDelayMs,
+        isRetryable,
+      });
+      await withRetry(() => this.linkProductToCollection(request.shopifyProductId, collectionId), {
+        maxAttempts: this.maxAttempts,
+        baseDelayMs: this.baseDelayMs,
+        isRetryable,
+      });
+    }
+  }
+
+  private async setTags(productId: string, tags: readonly string[]): Promise<void> {
+    await this.request<object>("PUT", `/products/${productId}.json`, {
+      product: { id: Number(productId), tags: tags.join(", ") },
+    });
+  }
+
   private async listProductImageIds(productId: string): Promise<string[]> {
     const body = await this.request<ImagesListResponseBody>("GET", `/products/${productId}/images.json`, undefined);
     return (body.images ?? [])
@@ -458,7 +541,7 @@ export class ShopifyApiProvider implements ShopifyProvider {
   }
 
   private async request<TBody extends object>(
-    method: "GET" | "POST" | "DELETE",
+    method: "GET" | "POST" | "PUT" | "DELETE",
     path: string,
     payload: unknown,
   ): Promise<TBody> {

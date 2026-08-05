@@ -19,11 +19,16 @@ import { err, ok, type Result } from "../shared/result.ts";
 import { withRetry } from "../shared/retry.ts";
 import type {
   PrintifyProvider,
+  PrintifyPublishRequest,
+  PrintifyPublishResult,
   PrintifyUpdateRequest,
   PrintifyUpdateResult,
   PrintifyUploadRequest,
   PrintifyUploadResult,
 } from "./types.ts";
+
+const DEFAULT_PUBLISH_MAX_WAIT_MS = 60_000;
+const DEFAULT_PUBLISH_POLL_INTERVAL_MS = 3_000;
 
 const PRINTIFY_API_BASE = "https://api.printify.com/v1";
 const DEFAULT_MAX_ATTEMPTS = 3;
@@ -71,6 +76,10 @@ export interface PrintifyProviderOptions {
   readonly placementY?: number;
   /** Print width, as a fraction of print-area width. Defaults to the upper-chest standard above. */
   readonly placementScale?: number;
+  /** Injectable sleep implementation for publishProductToShopify's polling loop, so tests don't wait on real timers. */
+  readonly sleepImpl?: (ms: number) => Promise<void>;
+  /** Injectable clock for publishProductToShopify's deadline check, so tests don't depend on real wall-clock time. Defaults to Date.now. */
+  readonly nowImpl?: () => number;
 }
 
 interface UploadImageResponseBody {
@@ -81,6 +90,14 @@ interface CreateProductResponseBody {
   readonly id?: string;
   /** Printify auto-generates these on product creation; each has a rendered mockup image URL. */
   readonly images?: ReadonlyArray<{ readonly src?: string }>;
+}
+
+/** Response shape of GET /shops/{shopId}/products/{productId}.json — only the fields publishProductToShopify needs. */
+interface GetProductResponseBody {
+  readonly id?: string;
+  readonly is_locked?: boolean;
+  /** Populated by Printify once its integration finishes creating the product in the connected Shopify store. Null/absent until then. */
+  readonly external?: { readonly id?: string; readonly handle?: string } | null;
 }
 
 export class PrintifyApiProvider implements PrintifyProvider {
@@ -97,6 +114,8 @@ export class PrintifyApiProvider implements PrintifyProvider {
   private readonly placementX: number;
   private readonly placementY: number;
   private readonly placementScale: number;
+  private readonly sleepImpl: (ms: number) => Promise<void>;
+  private readonly nowImpl: () => number;
 
   constructor(options: PrintifyProviderOptions) {
     this.apiKey = options.apiKey;
@@ -112,6 +131,8 @@ export class PrintifyApiProvider implements PrintifyProvider {
     this.placementX = options.placementX ?? DEFAULT_PLACEMENT_X;
     this.placementY = options.placementY ?? DEFAULT_PLACEMENT_Y;
     this.placementScale = options.placementScale ?? DEFAULT_PLACEMENT_SCALE;
+    this.sleepImpl = options.sleepImpl ?? ((ms): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms)));
+    this.nowImpl = options.nowImpl ?? ((): number => Date.now());
   }
 
   async uploadProduct(
@@ -312,10 +333,103 @@ export class PrintifyApiProvider implements PrintifyProvider {
     return { productId: body.id, mockupUrls };
   }
 
+  /**
+   * Publishes an existing Printify product to this shop's connected
+   * Shopify store via Printify's own integration (POST .../publish.json),
+   * then polls GET .../{productId}.json until Printify reports the
+   * resulting Shopify product id in the `external` field — that call only
+   * *starts* Printify's side of the process, it doesn't return the new
+   * Shopify product id synchronously. See the doc comment on
+   * `PrintifyPublishRequest` (./types.ts) for why this exists.
+   */
+  async publishProductToShopify(
+    request: PrintifyPublishRequest,
+  ): Promise<Result<PrintifyPublishResult, ExternalServiceError | ValidationError>> {
+    if (request.printifyProductId.trim().length === 0) {
+      return err(new ValidationError(["printifyProductId must not be blank"]));
+    }
+    if (request.jobId.trim().length === 0) {
+      return err(new ValidationError(["jobId must not be blank"]));
+    }
+
+    const jobLogger = this.logger.withJob(request.jobId, "publish-printify-to-shopify");
+    const maxWaitMs = request.maxWaitMs ?? DEFAULT_PUBLISH_MAX_WAIT_MS;
+    const pollIntervalMs = request.pollIntervalMs ?? DEFAULT_PUBLISH_POLL_INTERVAL_MS;
+
+    try {
+      const result = await jobLogger.time(
+        "Publish Printify product to Shopify",
+        () => this.callPublishAndPoll(request.printifyProductId, maxWaitMs, pollIntervalMs),
+        { printifyProductId: request.printifyProductId },
+      );
+
+      return ok({
+        jobId: request.jobId,
+        provider: this.name,
+        printifyProductId: request.printifyProductId,
+        shopifyProductId: result.shopifyProductId,
+        shopifyHandle: result.shopifyHandle,
+        publishedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      if (error instanceof ExternalServiceError || error instanceof ValidationError) {
+        return err(error);
+      }
+      return err(new ExternalServiceError("printify", "publish to Shopify failed", { cause: error }));
+    }
+  }
+
+  private async callPublishAndPoll(
+    printifyProductId: string,
+    maxWaitMs: number,
+    pollIntervalMs: number,
+  ): Promise<{ shopifyProductId: string; shopifyHandle: string | null }> {
+    // tags: false — the Printify product's own `tags` field is never set by uploadProduct()
+    // (Printify's create-product API has no place for it in this codebase's request body), so
+    // publishing tags:true would push an empty tag list to Shopify, wiping out the real
+    // AI-generated tags. title/description ARE safe to publish: uploadProduct() sends the real
+    // generated title/description as part of Printify product creation, so Printify already has
+    // the correct values for those. Tags are set separately, directly on Shopify, by whatever
+    // calls this method (see scripts/publish-printify-to-shopify.ts).
+    await withRetry(
+      () =>
+        this.request<Record<string, never>>(
+          `/shops/${this.shopId}/products/${printifyProductId}/publish.json`,
+          { title: true, description: true, images: true, variants: true, tags: false },
+        ),
+      { maxAttempts: this.maxAttempts, baseDelayMs: this.baseDelayMs, isRetryable },
+    );
+
+    const deadline = this.nowImpl() + maxWaitMs;
+    for (;;) {
+      const product = await this.request<GetProductResponseBody>(
+        `/shops/${this.shopId}/products/${printifyProductId}.json`,
+        undefined,
+        "GET",
+      );
+
+      const externalId = product.external?.id;
+      if (externalId !== undefined && externalId.trim().length > 0) {
+        return { shopifyProductId: externalId, shopifyHandle: product.external?.handle ?? null };
+      }
+
+      if (this.nowImpl() >= deadline) {
+        throw new ExternalServiceError(
+          "printify",
+          `publish accepted but Printify had not reported a Shopify product id for "${printifyProductId}" ` +
+            `after ${maxWaitMs}ms — it may still be processing; check the Printify dashboard before retrying, ` +
+            `retrying now would risk publishing a second time`,
+        );
+      }
+
+      await this.sleepImpl(pollIntervalMs);
+    }
+  }
+
   private async request<TBody extends object>(
     path: string,
     payload: unknown,
-    method: "POST" | "PUT" = "POST",
+    method: "POST" | "PUT" | "GET" = "POST",
   ): Promise<TBody> {
     let response: Response;
     try {
@@ -323,9 +437,9 @@ export class PrintifyApiProvider implements PrintifyProvider {
         method,
         headers: {
           Authorization: `Bearer ${this.apiKey}`,
-          "Content-Type": "application/json",
+          ...(method === "GET" ? {} : { "Content-Type": "application/json" }),
         },
-        body: JSON.stringify(payload),
+        ...(method === "GET" ? {} : { body: JSON.stringify(payload) }),
       });
     } catch (error) {
       throw new ExternalServiceError("printify", "network request failed", { cause: error });
@@ -338,8 +452,14 @@ export class PrintifyApiProvider implements PrintifyProvider {
       });
     }
 
+    const bodyText = await safeReadText(response);
+    if (bodyText.trim().length === 0) {
+      // Some endpoints (e.g. POST .../publish.json, which only starts an async process
+      // Printify's side) return a 200 with no body at all — not an error, just nothing to parse.
+      return {} as TBody;
+    }
     try {
-      return (await response.json()) as TBody;
+      return JSON.parse(bodyText) as TBody;
     } catch {
       throw new ValidationError(["response body was not valid JSON"]);
     }
