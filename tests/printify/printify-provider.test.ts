@@ -444,6 +444,40 @@ test("updateProductColorAndPlacement does not disable variants that are already 
   );
 });
 
+test("updateProductColorAndPlacement preserves the product's existing broad print_areas coverage instead of narrowing it", async () => {
+  // Reproduces the real 2026-08-05 incident: Printify auto-populates print_areas.variant_ids with
+  // every variant sharing this blueprint+provider's placement -- a much larger set than what was
+  // ever explicitly enabled. A PUT that only lists the new target (+ disabled) ids drops that
+  // existing coverage and Printify rejects it with error 8251, even though every *enabled* variant
+  // is technically covered by the narrower list.
+  const { fetchImpl, calls } = stubFetch([
+    () =>
+      jsonResponse(200, {
+        id: "prod-1",
+        variants: [{ id: 18100, is_enabled: true }, { id: 18540, is_enabled: true }],
+        print_areas: [{ variant_ids: [18051, 18052, 18053, 18540] }],
+      }),
+    () => jsonResponse(200, { id: "prod-1" }),
+  ]);
+  const provider = new PrintifyApiProvider(baseOptions(fetchImpl));
+
+  const result = await provider.updateProductColorAndPlacement({
+    jobId: "job-1",
+    printifyProductId: "prod-1",
+    printifyImageId: "img-1",
+    title: "Big Up Yourself T-Shirt",
+    description: "A bold Caribbean design.",
+    priceUsd: 24.99,
+    variantIds: [18100, 18101],
+  });
+
+  assert.equal(result.ok, true);
+  const printAreas = calls[1]?.body.print_areas as Array<{ variant_ids: number[] }>;
+  // Union of: what was already covered server-side (18051,18052,18053,18540), the new enabled
+  // target (18100,18101), and the newly-disabled id (18540 is already present, so no duplicate).
+  assert.deepEqual(printAreas[0]?.variant_ids, [18051, 18052, 18053, 18540, 18100, 18101]);
+});
+
 test("findProductIdByTitle finds a case-insensitive exact match on the first page", async () => {
   const { fetchImpl, calls } = stubFetch([
     () =>

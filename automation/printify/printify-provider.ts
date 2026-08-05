@@ -100,6 +100,16 @@ interface GetProductResponseBody {
   readonly external?: { readonly id?: string; readonly handle?: string } | null;
   /** The product's current variant enablement — read by callUpdateProduct to know what to explicitly disable. */
   readonly variants?: ReadonlyArray<{ readonly id?: number; readonly is_enabled?: boolean }>;
+  /**
+   * The product's current print area(s). Printify appears to auto-populate `variant_ids` here with
+   * every variant that shares the same print placeholder/placement for this blueprint+provider —
+   * NOT just the ids the client originally submitted at creation (confirmed 2026-08-05: a product
+   * created with only 12 enabled variants came back from GET with a print_areas.variant_ids array
+   * numbering in the hundreds, starting well outside that set of 12). callUpdateProduct reuses this
+   * existing coverage rather than guessing a narrower list, since a PUT that doesn't cover it
+   * triggers error 8251.
+   */
+  readonly print_areas?: ReadonlyArray<{ readonly variant_ids?: ReadonlyArray<number> }>;
 }
 
 /** Response shape of GET /shops/{shopId}/products.json — only the fields findProductIdByTitle needs. */
@@ -287,13 +297,16 @@ export class PrintifyApiProvider implements PrintifyProvider {
       .map((v) => v.id);
     const targetSet = new Set(request.variantIds);
     const idsToDisable = currentlyEnabledIds.filter((id) => !targetSet.has(id));
-    // Printify's print_areas validation (error 8251) checks every variant id present in this
-    // request's `variants` array, not just the enabled ones -- a disabled variant id with no
-    // matching print_areas.*.variant_ids entry trips the same "Variants do not match... make sure
-    // all product variants are present in print_areas" error. So the disabled ids go in
-    // print_areas too, alongside the real (enabled) target set. (Confirmed 2026-08-05: explicitly
-    // disabling the stale variants without also covering them in print_areas still failed 8251.)
-    const allVariantIdsInThisRequest = [...request.variantIds, ...idsToDisable];
+    // print_areas.variant_ids must cover every variant id in this request's `variants` array
+    // (enabled or disabled) PLUS whatever this product's print_areas already covers server-side --
+    // Printify auto-populates that with every variant sharing this placeholder/placement for the
+    // blueprint+provider (confirmed 2026-08-05: a product created with only 12 enabled variants
+    // still had a print_areas.variant_ids array numbering in the hundreds on GET, none of which
+    // overlapped the 12). Dropping that existing coverage in a PUT triggers error 8251 just as
+    // surely as omitting the new target set does, so the update's print_areas is the *union* of
+    // what's already there and what this request needs, never a narrower replacement.
+    const existingPrintAreaVariantIds = (current.print_areas ?? []).flatMap((area) => area.variant_ids ?? []);
+    const printAreaVariantIds = [...new Set([...existingPrintAreaVariantIds, ...request.variantIds, ...idsToDisable])];
 
     const body = await this.request<CreateProductResponseBody>(
       `/shops/${this.shopId}/products/${request.printifyProductId}.json`,
@@ -308,7 +321,7 @@ export class PrintifyApiProvider implements PrintifyProvider {
         ],
         print_areas: [
           {
-            variant_ids: allVariantIdsInThisRequest,
+            variant_ids: printAreaVariantIds,
             placeholders: [
               {
                 position: "front",
