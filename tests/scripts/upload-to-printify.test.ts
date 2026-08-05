@@ -209,6 +209,46 @@ test("production-safe error handling: one failed upload halts the entire batch â
   assert.equal(existsSync(path.join(approvedRoot, "good.printify.json")), false);
 });
 
+test("uploadApprovedArtworkToPrintify refuses to create a duplicate when a product with this title already exists remotely", async (t) => {
+  const approvedRoot = tempDir(t, "riddimroom-approved-");
+  createApprovedArtwork(approvedRoot, "big-up", { jobId: "job-big-up", title: "Big Up Yourself T-Shirt" });
+
+  const result = await uploadApprovedArtworkToPrintify({
+    approvedRoot,
+    printifyProviderOptions: {
+      env: {
+        DRY_RUN: "false",
+        PRINTIFY_API_KEY: "pk-test",
+        PRINTIFY_SHOP_ID: "shop-1",
+        PRINTIFY_BLUEPRINT_ID: "5",
+        PRINTIFY_PRINT_PROVIDER_ID: "9",
+        PRINTIFY_VARIANT_IDS: "111",
+      },
+      // Simulates the exact 2026-08-05 incident scenario: no local <stem>.printify.json
+      // (fresh checkout), but the remote shop already has a product with this title.
+      fetchImpl: (async (input: string | URL | Request) => {
+        if (String(input).includes("/products.json")) {
+          return new Response(
+            JSON.stringify({ data: [{ id: "existing-prod-42", title: "Big Up Yourself T-Shirt" }], last_page: 1 }),
+            { status: 200 },
+          );
+        }
+        throw new Error(`unexpected fetch in this test: ${String(input)}`);
+      }) as typeof fetch,
+    },
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  // Refused, not silently skipped and not duplicated: nothing uploaded, batch stopped, clear reason.
+  assert.equal(result.value.uploaded.length, 0);
+  assert.ok(result.value.stoppedDueTo);
+  assert.match(result.value.stoppedDueTo?.reason ?? "", /already exists in the configured shop/);
+  assert.match(result.value.stoppedDueTo?.reason ?? "", /existing-prod-42/);
+  // No product-creation call was ever made â€” the only fetch that happened was the title lookup.
+  assert.equal(existsSync(path.join(approvedRoot, "big-up.printify.json")), false);
+});
+
 test("uploadApprovedArtworkToPrintify returns an empty report when designs/approved/ doesn't exist, without erroring", async (t) => {
   const approvedRoot = path.join(tempDir(t, "riddimroom-approved-"), "does-not-exist");
 
