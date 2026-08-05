@@ -1,0 +1,61 @@
+name: Reconcile Orphan Printify Product
+
+# Completes a Printify product that a previous launch-apparel.yml run
+# *created* but never finished (failed on the color-switch update or the
+# Shopify publish step) -- reads the product's live state from Printify and
+# finishes it in place, per this project's "repair rather than recreate"
+# rule (CLAUDE.md, Phase 4). Never creates a second product. See the doc
+# comment on scripts/reconcile-orphan-printify-product.ts for exactly why
+# this is needed instead of scripts/regenerate-printify-product.ts.
+#
+# This makes real Printify/Shopify writes (color-switch + publish), so it
+# requires the same explicit LAUNCH confirmation as launch-apparel.yml.
+on:
+  workflow_dispatch:
+    inputs:
+      printifyProductId:
+        description: 'The existing Printify product id to finish (never creates a new one).'
+        required: true
+        type: string
+      confirm:
+        description: 'Type LAUNCH to confirm — this makes real Printify/Shopify writes.'
+        required: true
+        type: string
+
+jobs:
+  reconcile:
+    name: Finish the existing Printify product (switch color, publish to Shopify)
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 10
+
+    steps:
+      - name: Verify confirmation input
+        if: ${{ github.event.inputs.confirm != 'LAUNCH' }}
+        run: |
+          echo "::error::Confirmation input did not match 'LAUNCH' — aborting before any production call."
+          exit 1
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: package.json
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run reconciliation
+        run: node --disable-warning=ExperimentalWarning --experimental-strip-types scripts/reconcile-orphan-printify-product.ts "${{ github.event.inputs.printifyProductId }}"
+        env:
+          DRY_RUN: "false"
+          NODE_ENV: production
+          PRINTIFY_API_KEY: ${{ secrets.PRINTIFY_API_KEY }}
+          PRINTIFY_SHOP_ID: ${{ secrets.PRINTIFY_SHOP_ID }}
+          PRINTIFY_BLUEPRINT_ID: ${{ secrets.PRINTIFY_BLUEPRINT_ID }}
+          PRINTIFY_PRINT_PROVIDER_ID: ${{ secrets.PRINTIFY_PRINT_PROVIDER_ID }}
+          PRINTIFY_VARIANT_IDS: ${{ secrets.PRINTIFY_VARIANT_IDS }}
+          PRINTIFY_BLACK_VARIANT_IDS: ${{ secrets.PRINTIFY_BLACK_VARIANT_IDS }}
