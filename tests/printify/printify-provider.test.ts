@@ -409,8 +409,11 @@ test("updateProductColorAndPlacement explicitly disables previously-enabled vari
       { id: 222, is_enabled: false },
     ],
   );
+  // print_areas must cover every variant id in this request's `variants` array, including the
+  // ones being explicitly disabled -- not just the new enabled set (see the doc comment on
+  // callUpdateProduct for why: Printify's 8251 validation checks the whole `variants` payload).
   const printAreas = putCall?.body.print_areas as Array<{ variant_ids: number[] }>;
-  assert.deepEqual(printAreas[0]?.variant_ids, [333, 444]);
+  assert.deepEqual(printAreas[0]?.variant_ids, [333, 444, 111, 222]);
 });
 
 test("updateProductColorAndPlacement does not disable variants that are already in the target set", async () => {

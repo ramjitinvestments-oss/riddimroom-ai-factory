@@ -287,6 +287,13 @@ export class PrintifyApiProvider implements PrintifyProvider {
       .map((v) => v.id);
     const targetSet = new Set(request.variantIds);
     const idsToDisable = currentlyEnabledIds.filter((id) => !targetSet.has(id));
+    // Printify's print_areas validation (error 8251) checks every variant id present in this
+    // request's `variants` array, not just the enabled ones -- a disabled variant id with no
+    // matching print_areas.*.variant_ids entry trips the same "Variants do not match... make sure
+    // all product variants are present in print_areas" error. So the disabled ids go in
+    // print_areas too, alongside the real (enabled) target set. (Confirmed 2026-08-05: explicitly
+    // disabling the stale variants without also covering them in print_areas still failed 8251.)
+    const allVariantIdsInThisRequest = [...request.variantIds, ...idsToDisable];
 
     const body = await this.request<CreateProductResponseBody>(
       `/shops/${this.shopId}/products/${request.printifyProductId}.json`,
@@ -301,7 +308,7 @@ export class PrintifyApiProvider implements PrintifyProvider {
         ],
         print_areas: [
           {
-            variant_ids: request.variantIds,
+            variant_ids: allVariantIdsInThisRequest,
             placeholders: [
               {
                 position: "front",
