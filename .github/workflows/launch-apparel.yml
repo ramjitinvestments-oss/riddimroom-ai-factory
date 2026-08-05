@@ -109,6 +109,12 @@ jobs:
           # "Align top" placement live; re-running them through the PRINTIFY_PRINT_Y override above
           # would overwrite that fix. See scripts/launch-apparel.ts's designStemsFromEnv().
           LAUNCH_DESIGN_STEMS: "Big Up,Chipping,Irie,Liming,Pickney,Riddim,Soon Come,Watch Nah,Wgagwaan"
+          # Explicitly empty: preflight's default pendingStems (crown/RR shirt 1/treasure chest)
+          # were published by hand in an earlier session and their designs/processed/*.png source
+          # files were never committed to this repo — a fresh checkout (this runner) fails
+          # preflight's "Artwork present" check for them even though this run doesn't touch them.
+          # See scripts/launch-apparel.ts's pendingStemsFromEnv() doc comment.
+          PREFLIGHT_PENDING_STEMS: ""
 
       - name: Summarize launch report
         if: always()

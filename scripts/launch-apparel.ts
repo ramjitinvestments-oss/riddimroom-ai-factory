@@ -64,6 +64,19 @@ export interface LaunchReport {
 
 export interface RunLaunchOptions {
   readonly designStems?: readonly string[];
+  /**
+   * Forwarded to `runPreflightCheck`'s `pendingStems` option. Defaults (when
+   * omitted) to preflight's own hardcoded ["crown", "RR shirt 1", "treasure
+   * chest"] — correct for the original 4-design launch, but wrong for any
+   * later batch: those 3 designs were already published (by hand, outside
+   * this pipeline, in an earlier session) and their designs/processed/*.png
+   * source files were never committed to this repo, so a fresh checkout
+   * (e.g. a GitHub Actions runner) fails preflight's "Artwork present"
+   * check for them even though nothing in the actual launch needs them.
+   * Pass `[]` here (see `PREFLIGHT_PENDING_STEMS` in main()) for any launch
+   * that isn't re-uploading those original 3 designs.
+   */
+  readonly pendingStems?: readonly string[];
   readonly logger?: Logger;
   readonly env?: NodeJS.ProcessEnv;
   readonly reportDir?: string;
@@ -100,7 +113,10 @@ export async function runLaunch(options: RunLaunchOptions = {}): Promise<LaunchR
   const preflightFn = options.preflightFn ?? runPreflightCheck;
   const runDesignFn = options.runDesignFn ?? runApparelPipeline;
 
-  const preflight = await preflightFn(options.env !== undefined ? { env: options.env } : {});
+  const preflight = await preflightFn({
+    ...(options.env !== undefined ? { env: options.env } : {}),
+    ...(options.pendingStems !== undefined ? { pendingStems: options.pendingStems } : {}),
+  });
 
   if (!preflight.passed) {
     baseLogger.error("Launch blocked: pre-flight check failed", {
@@ -231,10 +247,30 @@ function designStemsFromEnv(env: NodeJS.ProcessEnv): readonly string[] | undefin
     .filter((s) => s.length > 0);
 }
 
+/**
+ * Same idea as `designStemsFromEnv`, for `RunLaunchOptions.pendingStems`.
+ * Unlike `LAUNCH_DESIGN_STEMS`, an explicitly-empty value is meaningful here
+ * (see the doc comment on `RunLaunchOptions.pendingStems`) — it means "this
+ * launch has no pending-in-the-old-sense designs," not "unset." Only a
+ * genuinely unset env var falls back to preflight's own default.
+ */
+function pendingStemsFromEnv(env: NodeJS.ProcessEnv): readonly string[] | undefined {
+  const raw = env.PREFLIGHT_PENDING_STEMS;
+  if (raw === undefined) return undefined;
+  return raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
 async function main(): Promise<void> {
   loadEnv();
   const designStems = designStemsFromEnv(process.env);
-  const report = await runLaunch(designStems !== undefined ? { designStems } : {});
+  const pendingStems = pendingStemsFromEnv(process.env);
+  const report = await runLaunch({
+    ...(designStems !== undefined ? { designStems } : {}),
+    ...(pendingStems !== undefined ? { pendingStems } : {}),
+  });
   printReport(report);
   if (!report.launched || !report.succeeded) {
     process.exitCode = 1;
