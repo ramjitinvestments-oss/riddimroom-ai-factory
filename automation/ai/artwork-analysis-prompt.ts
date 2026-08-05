@@ -35,7 +35,12 @@ export const ARTWORK_ANALYSIS_JSON_SCHEMA = {
     description: { type: "string" },
     seoTitle: { type: "string" },
     seoDescription: { type: "string" },
-    tags: { type: "array", items: { type: "string" } },
+    // minItems/maxItems mirror artwork-analysis-validation.ts's MIN_TAGS/MAX_TAGS (10-15) exactly,
+    // so OpenAI's structured-output mode enforces the count at generation time instead of relying
+    // solely on the prompt's "exactly 10 to 15" wording — confirmed necessary: a real run generated
+    // 16 tags for the "Liming" design under the prompt-only version of this schema, failing
+    // validateArtworkAnalysis() after the request had already succeeded.
+    tags: { type: "array", items: { type: "string" }, minItems: 10, maxItems: 15 },
   },
   required: [
     "collectionId",
