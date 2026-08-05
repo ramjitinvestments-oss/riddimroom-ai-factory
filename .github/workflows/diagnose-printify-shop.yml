@@ -1,0 +1,35 @@
+name: Diagnose Printify Shop Connection (Read-Only)
+
+# Read-only diagnostic — runs scripts/diagnose-printify-shop.ts, which only
+# calls GET /v1/shops.json and prints the result. Never writes to Printify,
+# Shopify, or this repo. No confirmation gate needed (unlike
+# launch-apparel.yml / repair-legacy-products.yml) because nothing here can
+# make a production change.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  diagnose:
+    name: List Printify shops and their sales-channel connections
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: package.json
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run diagnostic
+        run: npm run diagnose:printify-shop
+        env:
+          PRINTIFY_API_KEY: ${{ secrets.PRINTIFY_API_KEY }}
+          PRINTIFY_SHOP_ID: ${{ secrets.PRINTIFY_SHOP_ID }}
