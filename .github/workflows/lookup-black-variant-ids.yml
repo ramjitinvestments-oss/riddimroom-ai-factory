@@ -1,0 +1,49 @@
+name: Lookup Black Variant IDs (Read-Only)
+
+# Read-only diagnostic for the 2026-08-05 production launch failure: every
+# design failed regenerate-printify-product.ts's variant switch with
+# Printify error 8251 ("Variants do not match selected blueprint and print
+# provider"), not just Wgagwaan as previously suspected -- meaning the
+# PRINTIFY_BLACK_VARIANT_IDS secret (41 ids spanning multiple id ranges,
+# 18xxx/38xxx/80xxx/101666) has drifted out of sync with the currently
+# configured PRINTIFY_BLUEPRINT_ID/PRINTIFY_PRINT_PROVIDER_ID, almost
+# certainly accumulated across earlier blueprint/provider changes in this
+# project's history.
+#
+# scripts/lookup-black-variant-ids.ts calls Printify's own read-only
+# Catalog API (GET /catalog/blueprints/{id}/print_providers/{id}/variants.json)
+# for the *currently configured* blueprint/provider and prints every
+# variant whose color matches "black" -- the correct, current list. This
+# workflow only prints that list to the job log; it does not write .env
+# (this runner's .env is thrown away when the job ends) or touch any
+# secret. A human reads the printed ids and updates the
+# PRINTIFY_BLACK_VARIANT_IDS secret by hand.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  lookup:
+    name: List correct black-variant ids for the configured blueprint/provider
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: package.json
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run lookup
+        run: npm run lookup:black-variants
+        env:
+          PRINTIFY_API_KEY: ${{ secrets.PRINTIFY_API_KEY }}
+          PRINTIFY_BLUEPRINT_ID: ${{ secrets.PRINTIFY_BLUEPRINT_ID }}
+          PRINTIFY_PRINT_PROVIDER_ID: ${{ secrets.PRINTIFY_PRINT_PROVIDER_ID }}
