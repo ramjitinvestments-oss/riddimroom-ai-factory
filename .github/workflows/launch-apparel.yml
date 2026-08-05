@@ -116,7 +116,18 @@ jobs:
           # (GOLDEN turntable/crown/RR shirt 1/treasure chest) already have the manually-verified
           # "Align top" placement live; re-running them through the PRINTIFY_PRINT_Y override above
           # would overwrite that fix. See scripts/launch-apparel.ts's designStemsFromEnv().
-          LAUNCH_DESIGN_STEMS: "Big Up,Chipping,Irie,Liming,Pickney,Riddim,Soon Come,Watch Nah,Wgagwaan"
+          #
+          # CHANGED 2026-08-05: "Big Up" removed from this list. The first attempt at this batch
+          # (run 31031719307) created Big Up's Printify product then failed the color-switch update
+          # with error 8251 (root-caused and fixed across commits 1266f15/98dc0a5/4f5a801 in
+          # automation/printify/printify-provider.ts). Since designs/processed/Big Up.*.json is
+          # gitignored, that partially-created product had no local record for this workflow's
+          # duplicate-title guard to find, and AI-generated titles aren't guaranteed stable across
+          # runs -- re-running Big Up through the normal create path here risked a second product
+          # instead of reusing the one that already exists. It was reconciled in place by hand via
+          # scripts/reconcile-orphan-printify-product.ts (see designs/published/Big Up.printify.json)
+          # and is now fully live; this list only needs to (re)launch the remaining 8.
+          LAUNCH_DESIGN_STEMS: "Chipping,Irie,Liming,Pickney,Riddim,Soon Come,Watch Nah,Wgagwaan"
           # Explicitly empty: preflight's default pendingStems (crown/RR shirt 1/treasure chest)
           # were published by hand in an earlier session and their designs/processed/*.png source
           # files were never committed to this repo — a fresh checkout (this runner) fails

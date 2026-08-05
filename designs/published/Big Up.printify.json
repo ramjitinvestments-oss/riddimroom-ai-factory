@@ -1,0 +1,32 @@
+{
+  "jobId": "reconcile-6a7377b031221db2de01ec8d",
+  "printifyProductId": "6a7377b031221db2de01ec8d",
+  "printifyImageId": "6a7330ecf61c9ae29b79865b",
+  "mockupUrls": [
+    "https://images.printify.com/mockup/6a7377b031221db2de01ec8d/18102/102044/big-up-caribbean-dictionary-tee.jpg?camera_label=front-2",
+    "https://images.printify.com/mockup/6a7377b031221db2de01ec8d/18102/102045/big-up-caribbean-dictionary-tee.jpg?camera_label=back-2",
+    "https://images.printify.com/mockup/6a7377b031221db2de01ec8d/18102/102046/big-up-caribbean-dictionary-tee.jpg?camera_label=folded",
+    "https://images.printify.com/mockup/6a7377b031221db2de01ec8d/18102/102048/big-up-caribbean-dictionary-tee.jpg?camera_label=hanging-1",
+    "https://images.printify.com/mockup/6a7377b031221db2de01ec8d/18478/102044/big-up-caribbean-dictionary-tee.jpg?camera_label=front-2",
+    "https://images.printify.com/mockup/6a7377b031221db2de01ec8d/18478/102045/big-up-caribbean-dictionary-tee.jpg?camera_label=back-2",
+    "https://images.printify.com/mockup/6a7377b031221db2de01ec8d/18478/102046/big-up-caribbean-dictionary-tee.jpg?camera_label=folded",
+    "https://images.printify.com/mockup/6a7377b031221db2de01ec8d/18478/102048/big-up-caribbean-dictionary-tee.jpg?camera_label=hanging-1",
+    "https://images.printify.com/mockup/6a7377b031221db2de01ec8d/38788/102044/big-up-caribbean-dictionary-tee.jpg?camera_label=front-2",
+    "https://images.printify.com/mockup/6a7377b031221db2de01ec8d/38788/102045/big-up-caribbean-dictionary-tee.jpg?camera_label=back-2",
+    "https://images.printify.com/mockup/6a7377b031221db2de01ec8d/38788/102046/big-up-caribbean-dictionary-tee.jpg?camera_label=folded",
+    "https://images.printify.com/mockup/6a7377b031221db2de01ec8d/38788/102048/big-up-caribbean-dictionary-tee.jpg?camera_label=hanging-1",
+    "https://images.printify.com/mockup/6a7377b031221db2de01ec8d/18534/102044/big-up-caribbean-dictionary-tee.jpg?camera_label=front-2",
+    "https://images.printify.com/mockup/6a7377b031221db2de01ec8d/18534/102045/big-up-caribbean-dictionary-tee.jpg?camera_label=back-2",
+    "https://images.printify.com/mockup/6a7377b031221db2de01ec8d/18534/102046/big-up-caribbean-dictionary-tee.jpg?camera_label=folded",
+    "https://images.printify.com/mockup/6a7377b031221db2de01ec8d/18534/102048/big-up-caribbean-dictionary-tee.jpg?camera_label=hanging-1",
+    "https://images.printify.com/mockup/6a7377b031221db2de01ec8d/80579/102044/big-up-caribbean-dictionary-tee.jpg?camera_label=front-2",
+    "https://images.printify.com/mockup/6a7377b031221db2de01ec8d/80579/102045/big-up-caribbean-dictionary-tee.jpg?camera_label=back-2",
+    "https://images.printify.com/mockup/6a7377b031221db2de01ec8d/80579/102046/big-up-caribbean-dictionary-tee.jpg?camera_label=folded",
+    "https://images.printify.com/mockup/6a7377b031221db2de01ec8d/80579/102048/big-up-caribbean-dictionary-tee.jpg?camera_label=hanging-1"
+  ],
+  "priceUsd": 24.99,
+  "status": "uploaded",
+  "uploadedAt": "2026-08-05T17:48:38.000Z",
+  "colorRegeneratedAt": "2026-08-05T18:33:47.886Z",
+  "_reconciliationNote": "The 2026-08-05 production launch (run 31031719307) created this Printify product (upload-to-printify.ts) then failed the immediately-following color-switch update with error 8251, before designs/processed/Big Up.printify.json was ever written -- that file is gitignored and the GitHub Actions runner that created it was destroyed, so no local record of this product existed anywhere. Root-caused and fixed in automation/printify/printify-provider.ts (three iterations -- see commits 1266f15, 98dc0a5, 4f5a801), then reconciled in place via scripts/reconcile-orphan-printify-product.ts (never recreated) using the product's live Printify state as the source of truth for title/description/price/imageId. jobId above is synthetic (the original pipeline job id was never captured, for the same reason). See docs/2026-08-05-printify-shopify-incident-report.md and the manual-deletion handoff doc for the wider incident."
+}
