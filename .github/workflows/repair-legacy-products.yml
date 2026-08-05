@@ -1,0 +1,81 @@
+name: Repair Legacy Non-Orderable Products (Production)
+
+# One-off remediation for the 2026-08-05 production incident: 8 Caribbean
+# Dictionary Series products (Big Up, Chipping, Irie, Liming, Pickney,
+# Riddim, Soon Come, Watch Nah) were created via a bare Shopify Admin API
+# call that only ever produces a single "Default Title" variant with 0
+# inventory — not orderable, no real Printify fulfillment link. This runs
+# scripts/repair-legacy-shopify-products.ts, which creates a proper
+# replacement product for each via Printify's real publish integration.
+# See that script's header comment for the full mechanism.
+#
+# Same reasoning as launch-apparel.yml for why this only runs from GitHub
+# Actions (real network access to api.printify.com and Shopify's OAuth
+# endpoint, both unreachable from Claude's own sandbox) and why it's
+# workflow_dispatch-only (a deliberate, explicit action, typing LAUNCH,
+# never a side effect of pushing a code change).
+#
+# This workflow does NOT touch the old broken products — see the script's
+# doc comment. Archiving them is a separate manual step after each
+# replacement is verified.
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type LAUNCH to confirm — this creates real new Shopify products via Printify.'
+        required: true
+        type: string
+
+concurrency:
+  group: repair-legacy-products
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    name: Run legacy product repair
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+
+    steps:
+      - name: Verify confirmation input
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.confirm != 'LAUNCH' }}
+        run: |
+          echo "::error::Confirmation input did not match 'LAUNCH' — aborting before any production call."
+          exit 1
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: package.json
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run repair script
+        run: npm run repair:legacy-products
+        env:
+          DRY_RUN: "false"
+          NODE_ENV: production
+          SHOPIFY_STORE_DOMAIN: ${{ secrets.SHOPIFY_STORE_DOMAIN }}
+          SHOPIFY_CLIENT_ID: ${{ secrets.SHOPIFY_CLIENT_ID }}
+          SHOPIFY_CLIENT_SECRET: ${{ secrets.SHOPIFY_CLIENT_SECRET }}
+          SHOPIFY_API_VERSION: ${{ secrets.SHOPIFY_API_VERSION }}
+          PRINTIFY_API_KEY: ${{ secrets.PRINTIFY_API_KEY }}
+          PRINTIFY_SHOP_ID: ${{ secrets.PRINTIFY_SHOP_ID }}
+          PRINTIFY_BLUEPRINT_ID: ${{ secrets.PRINTIFY_BLUEPRINT_ID }}
+          PRINTIFY_PRINT_PROVIDER_ID: ${{ secrets.PRINTIFY_PRINT_PROVIDER_ID }}
+          PRINTIFY_VARIANT_IDS: ${{ secrets.PRINTIFY_VARIANT_IDS }}
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: repair-legacy-products-${{ github.run_id }}
+          path: logs/
+          if-no-files-found: warn
+          retention-days: 90

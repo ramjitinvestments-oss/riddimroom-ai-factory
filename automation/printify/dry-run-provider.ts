@@ -97,4 +97,14 @@ export class DryRunPrintifyProvider implements PrintifyProvider {
       publishedAt: this.now().toISOString(),
     });
   }
+
+  async findProductIdByTitle(title: string): Promise<Result<string | null, ExternalServiceError | ValidationError>> {
+    if (title.trim().length === 0) {
+      return err(new ValidationError(["title must not be blank"]));
+    }
+    // No real backing store — nothing was ever "created" with a title this
+    // provider remembers, so every lookup honestly reports "not found"
+    // rather than fabricating a match.
+    return ok(null);
+  }
 }

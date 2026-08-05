@@ -105,6 +105,17 @@ export interface PrintifyProvider {
   uploadProduct(
     request: PrintifyUploadRequest,
   ): Promise<Result<PrintifyUploadResult, ExternalServiceError | ValidationError>>;
+  /**
+   * Finds an existing Printify product by exact (case-insensitive) title
+   * match, paging through GET /shops/{shopId}/products.json until found or
+   * exhausted. Returns `null` (not an error) when nothing matches. Exists
+   * for one-off remediation/lookup scripts — e.g. recovering a
+   * `printifyProductId` that was never persisted locally (see the
+   * 2026-08-05 production incident where GitHub Actions runs never
+   * committed `designs/processed/*.printify.json`) — not used by the
+   * regular pipeline, which always already has the id on file.
+   */
+  findProductIdByTitle(title: string): Promise<Result<string | null, ExternalServiceError | ValidationError>>;
   /** Updates variants/placement on an existing product and returns the newly regenerated mockups. Never creates a duplicate product. */
   updateProductColorAndPlacement(
     request: PrintifyUpdateRequest,

@@ -100,6 +100,14 @@ interface GetProductResponseBody {
   readonly external?: { readonly id?: string; readonly handle?: string } | null;
 }
 
+/** Response shape of GET /shops/{shopId}/products.json — only the fields findProductIdByTitle needs. */
+interface ListProductsResponseBody {
+  readonly data?: ReadonlyArray<{ readonly id?: string; readonly title?: string }>;
+  readonly last_page?: number;
+}
+
+const PRODUCT_LIST_PAGE_SIZE = 50;
+
 export class PrintifyApiProvider implements PrintifyProvider {
   readonly name = "printify";
   private readonly apiKey: string;
@@ -423,6 +431,42 @@ export class PrintifyApiProvider implements PrintifyProvider {
       }
 
       await this.sleepImpl(pollIntervalMs);
+    }
+  }
+
+  /** See the interface doc comment (./types.ts) for why this exists. */
+  async findProductIdByTitle(
+    title: string,
+  ): Promise<Result<string | null, ExternalServiceError | ValidationError>> {
+    if (title.trim().length === 0) {
+      return err(new ValidationError(["title must not be blank"]));
+    }
+
+    try {
+      const normalized = title.trim().toLowerCase();
+      let page = 1;
+      for (;;) {
+        const body = await this.request<ListProductsResponseBody>(
+          `/shops/${this.shopId}/products.json?page=${page}&limit=${PRODUCT_LIST_PAGE_SIZE}`,
+          undefined,
+          "GET",
+        );
+        const products = body.data ?? [];
+        const match = products.find((p) => p.title?.trim().toLowerCase() === normalized);
+        if (match?.id !== undefined && match.id.length > 0) {
+          return ok(match.id);
+        }
+        const lastPage = body.last_page ?? page;
+        if (products.length === 0 || page >= lastPage) {
+          return ok(null);
+        }
+        page += 1;
+      }
+    } catch (error) {
+      if (error instanceof ExternalServiceError || error instanceof ValidationError) {
+        return err(error);
+      }
+      return err(new ExternalServiceError("printify", "product list lookup failed", { cause: error }));
     }
   }
 

@@ -374,3 +374,58 @@ test("publishProductToShopify does not call fetch for a blank printifyProductId"
   assert.equal(result.ok, false);
   assert.equal(calls.length, 0);
 });
+
+test("findProductIdByTitle finds a case-insensitive exact match on the first page", async () => {
+  const { fetchImpl, calls } = stubFetch([
+    () =>
+      jsonResponse(200, {
+        data: [{ id: "prod-1", title: "Riddim Typography Tee" }, { id: "prod-2", title: "Watch Nah T-Shirt" }],
+        last_page: 1,
+      }),
+  ]);
+  const provider = new PrintifyApiProvider(baseOptions(fetchImpl));
+
+  const result = await provider.findProductIdByTitle("riddim typography tee");
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.value, "prod-1");
+  assert.equal(calls.length, 1);
+});
+
+test("findProductIdByTitle pages through results until it finds a match", async () => {
+  const { fetchImpl, calls } = stubFetch([
+    () => jsonResponse(200, { data: [{ id: "prod-1", title: "Big Up Yourself T-Shirt" }], last_page: 3 }),
+    () => jsonResponse(200, { data: [{ id: "prod-2", title: "Chipping: Slow Dance T-Shirt" }], last_page: 3 }),
+    () => jsonResponse(200, { data: [{ id: "prod-3", title: "Watch Nah T-Shirt" }], last_page: 3 }),
+  ]);
+  const provider = new PrintifyApiProvider(baseOptions(fetchImpl));
+
+  const result = await provider.findProductIdByTitle("Watch Nah T-Shirt");
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.value, "prod-3");
+  assert.equal(calls.length, 3);
+});
+
+test("findProductIdByTitle returns null (not an error) when nothing matches after the last page", async () => {
+  const { fetchImpl } = stubFetch([() => jsonResponse(200, { data: [{ id: "prod-1", title: "Something Else" }], last_page: 1 })]);
+  const provider = new PrintifyApiProvider(baseOptions(fetchImpl));
+
+  const result = await provider.findProductIdByTitle("Nonexistent Product");
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.value, null);
+});
+
+test("findProductIdByTitle does not call fetch for a blank title", async () => {
+  const { fetchImpl, calls } = stubFetch([() => jsonResponse(200, {})]);
+  const provider = new PrintifyApiProvider(baseOptions(fetchImpl));
+
+  const result = await provider.findProductIdByTitle("   ");
+
+  assert.equal(result.ok, false);
+  assert.equal(calls.length, 0);
+});
