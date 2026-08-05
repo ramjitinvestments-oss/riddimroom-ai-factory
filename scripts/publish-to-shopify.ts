@@ -186,8 +186,15 @@ function verifyPublishedProduct(
   return failedChecks;
 }
 
-/** Moves every existing sibling artifact (artwork + prepared/product/seo/tags/description/job/printify/shopify) from the processed root to published/, preserving any subdirectory structure. */
-function moveArtworkToPublished(pngPath: string, approvedRoot: string, publishedRoot: string): void {
+/**
+ * Moves every existing sibling artifact (artwork +
+ * prepared/product/seo/tags/description/job/printify/shopify) from the
+ * processed root to published/, preserving any subdirectory structure.
+ * Exported so scripts/publish-to-shopify-via-printify.ts can reuse the same
+ * move semantics instead of re-implementing them (module isolation — this
+ * is the one place that knows the full sibling-file set for a design).
+ */
+export function moveArtworkToPublished(pngPath: string, approvedRoot: string, publishedRoot: string): void {
   const relative = path.relative(approvedRoot, pngPath);
   const destPng = path.join(publishedRoot, relative);
   mkdirSync(path.dirname(destPng), { recursive: true });
@@ -212,8 +219,12 @@ function moveArtworkToPublished(pngPath: string, approvedRoot: string, published
   }
 }
 
-/** Best-effort store domain for building the live URL; falls back to a placeholder if unconfigured (e.g. dry-run tests). */
-function getStoreDomain(providerOptions: CreateShopifyProviderOptions | undefined): string {
+/**
+ * Best-effort store domain for building the live URL; falls back to a
+ * placeholder if unconfigured (e.g. dry-run tests). Exported for reuse by
+ * scripts/publish-to-shopify-via-printify.ts.
+ */
+export function getStoreDomain(providerOptions: CreateShopifyProviderOptions | undefined): string {
   const env = providerOptions?.env ?? process.env;
   return env.SHOPIFY_STORE_DOMAIN ?? "your-store.myshopify.com";
 }

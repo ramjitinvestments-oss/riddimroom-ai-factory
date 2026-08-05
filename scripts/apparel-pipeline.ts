@@ -18,21 +18,37 @@
  *       reused, gallery replaced in the approved 9-slot order).
  *
  *   designs/published/<stem>.printify.json does not exist
- *     → CREATE PATH: this design has never been published. Runs the
- *       existing, unmodified batch stages —
+ *     → CREATE PATH: this design has never been published. Runs:
  *       scripts/import-artwork.ts → scripts/upload-to-printify.ts →
- *       scripts/publish-to-shopify.ts (each already idempotent and
- *       production-safe; they process every ready item in
- *       designs/processed/, not just this one stem, which is the
- *       established behavior of those scripts and is not changed here).
- *       If that leaves this exact stem newly published, immediately
- *       chains into the UPDATE PATH for it too — so a first-time upload
- *       automatically inherits the approved black garment and approved
- *       gallery order in the same command, instead of leaving the
- *       product live with only the single flat-artwork image Shopify's
- *       create call sets and the default (non-black) Printify garment.
- *       This is what makes "no future upload should require manual
- *       corrections" true in practice.
+ *       scripts/regenerate-printify-product.ts (switches the still-in-
+ *       designs/processed/ Printify product to the approved black variants
+ *       *before* Shopify ever sees it — see the ordering note below) →
+ *       scripts/publish-to-shopify-via-printify.ts (creates the Shopify
+ *       product via Printify's own fulfillment-linked publish integration,
+ *       then applies tags/SEO/collection) → scripts/sync-product-images.ts
+ *       (approved 9-slot gallery order).
+ *
+ *       CHANGED 2026-08-05: this used to call scripts/publish-to-shopify.ts
+ *       (a bare, hand-built Shopify Admin API product creation) here, then
+ *       regenerate the Printify garment color *afterward*. That order was a
+ *       real production bug: the Shopify product created by that path only
+ *       ever had a single generic "Default Title" variant and 0 inventory —
+ *       never fulfillment-linked to Printify, never actually orderable, no
+ *       matter what ran after it. scripts/publish-to-shopify-via-printify.ts
+ *       fixes this by using Printify's own publish-to-Shopify integration,
+ *       which creates a real, fulfillment-linked product with the full
+ *       size/color variant matrix — but only if the Printify product's
+ *       variants are already correct *before* that call, hence regenerating
+ *       first now instead of after.
+ *
+ *       Each stage is independently idempotent and production-safe; they
+ *       process every ready item in designs/processed/, not just this one
+ *       stem, which is the established behavior of those scripts and is not
+ *       changed here. If the create path leaves this exact stem newly
+ *       published, it immediately chains into the UPDATE PATH's sync step
+ *       too — so a first-time upload automatically inherits the approved
+ *       gallery order in the same command. This is what makes "no future
+ *       upload should require manual corrections" true in practice.
  *
  * Every stage this script calls is independently idempotent and
  * production-safe (stops immediately on first real failure, never fakes
@@ -57,7 +73,7 @@ import { err, ok, type Result } from "../automation/shared/result.ts";
 import { outputPaths } from "./import-artwork.ts";
 import { importApprovedArtwork } from "./import-artwork.ts";
 import { uploadApprovedArtworkToPrintify } from "./upload-to-printify.ts";
-import { publishApprovedArtworkToShopify } from "./publish-to-shopify.ts";
+import { publishApprovedArtworkToShopifyViaPrintify } from "./publish-to-shopify-via-printify.ts";
 import { regeneratePrintifyProduct, type RegeneratePrintifyProductResult } from "./regenerate-printify-product.ts";
 import { syncProductImages, type SyncProductImagesResult } from "./sync-product-images.ts";
 
@@ -100,12 +116,16 @@ export async function runApparelPipeline(
   const alreadyPublished = existsSync(publishedOutputs.printify);
 
   let route: ApparelPipelineRoute;
+  let regenerateResult: Result<RegeneratePrintifyProductResult, ApparelPipelineError>;
 
   if (alreadyPublished) {
     route = "update-existing";
     baseLogger.info(`"${designStem}" already published — routing to update path (reuse existing product)`, {
       metadata: { printifyJsonPath: publishedOutputs.printify },
     });
+
+    regenerateResult = await regeneratePrintifyProduct(designStem, { logger: baseLogger, env, publishedRoot });
+    if (!regenerateResult.ok) return err(regenerateResult.error);
   } else {
     route = "create-then-update";
     baseLogger.info(`"${designStem}" not yet published — routing to create path`, {
@@ -134,7 +154,43 @@ export async function runApparelPipeline(
       );
     }
 
-    const publishResult = await publishApprovedArtworkToShopify({ logger: baseLogger, approvedRoot, publishedRoot });
+    // Nothing to do for a stem that doesn't exist anywhere — checked here,
+    // before regenerate/publish are ever attempted, so a nonexistent design
+    // gets this one clear message instead of regeneratePrintifyProduct's
+    // more confusing "expected ... to exist" error (it would otherwise be
+    // the first thing to notice nothing was ever uploaded for this stem).
+    const approvedOutputs = outputPaths(path.join(approvedRoot, `${designStem}.png`));
+    if (!existsSync(approvedOutputs.printify)) {
+      return err(
+        new ValidationError([
+          `"${designStem}" was not found under designs/processed/ (or a subdirectory) ready for upload, and is not ` +
+            `yet published — nothing to do. Check the stem matches a real file, or that scripts/import-artwork.ts / ` +
+            `scripts/prepare-artwork.ts have run for it first.`,
+        ]),
+      );
+    }
+
+    // Switch the Printify product to its final garment color/placement
+    // *before* Shopify ever sees it — publishApprovedArtworkToShopifyViaPrintify
+    // (below) pushes whatever variant matrix the Printify product currently
+    // has, via Printify's own publish integration. Points at approvedRoot,
+    // not publishedRoot: the artwork hasn't moved to designs/published/ yet
+    // at this point in the create path. See the module doc comment's
+    // 2026-08-05 ordering note for the production bug this fixes.
+    regenerateResult = await regeneratePrintifyProduct(designStem, {
+      logger: baseLogger,
+      env,
+      publishedRoot: approvedRoot,
+    });
+    if (!regenerateResult.ok) return err(regenerateResult.error);
+
+    const publishResult = await publishApprovedArtworkToShopifyViaPrintify({
+      logger: baseLogger,
+      approvedRoot,
+      publishedRoot,
+      printifyProviderOptions: { env },
+      shopifyProviderOptions: { env },
+    });
     if (!publishResult.ok) return err(publishResult.error);
     if (publishResult.value.stoppedDueTo !== null) {
       return err(
@@ -156,13 +212,10 @@ export async function runApparelPipeline(
     }
 
     baseLogger.info(
-      `"${designStem}" newly published — chaining into the update path so it inherits the approved black ` +
-        `garment and approved gallery order automatically`,
+      `"${designStem}" newly published via Printify's native integration — chaining into the update path's sync ` +
+        `step so it inherits the approved gallery order automatically`,
     );
   }
-
-  const regenerateResult = await regeneratePrintifyProduct(designStem, { logger: baseLogger, env, publishedRoot });
-  if (!regenerateResult.ok) return err(regenerateResult.error);
 
   const syncResult = await syncProductImages(designStem, { logger: baseLogger, publishedRoot });
   if (!syncResult.ok) return err(syncResult.error);

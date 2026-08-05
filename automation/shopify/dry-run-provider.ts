@@ -35,7 +35,7 @@ export interface DryRunShopifyProviderOptions {
 export class DryRunShopifyProvider implements ShopifyProvider {
   readonly name = "dry-run";
   private readonly now: () => Date;
-  private readonly published = new Map<string, ShopifyPublishRequest & { handle: string }>();
+  private readonly published = new Map<string, ShopifyPublishRequest & { handle: string; nativelyPublished?: boolean }>();
 
   constructor(options: DryRunShopifyProviderOptions = {}) {
     this.now = options.now ?? ((): Date => new Date());
@@ -98,7 +98,19 @@ export class DryRunShopifyProvider implements ShopifyProvider {
       tags: record.tags,
       productType: record.productType,
       imageUrls: [`https://dry-run.example/${record.handle}.png`],
-      variants: [{ id: `dry-run-variant-${record.jobId}`, price: record.priceUsd }],
+      // A record finalizeExternalProduct upserted from scratch (no prior
+      // publishProduct() call) stands in for Printify's native publish
+      // integration, which always creates a full size matrix — echo that
+      // back as more than one variant so verification checks relying on
+      // "more than one real variant" (the actual bug this integration
+      // fixes) can be exercised truthfully in dry-run too.
+      variants: record.nativelyPublished
+        ? [
+            { id: `dry-run-variant-${record.jobId}-s`, price: record.priceUsd },
+            { id: `dry-run-variant-${record.jobId}-m`, price: record.priceUsd },
+            { id: `dry-run-variant-${record.jobId}-l`, price: record.priceUsd },
+          ]
+        : [{ id: `dry-run-variant-${record.jobId}`, price: record.priceUsd }],
       seoTitle: record.seoTitle ?? null,
       seoDescription: record.seoDescription ?? null,
       collections: record.collection !== undefined ? [record.collection] : [],
@@ -137,16 +149,40 @@ export class DryRunShopifyProvider implements ShopifyProvider {
       return err(new ValidationError(["jobId must not be blank"]));
     }
 
+    // Unlike publishProduct's records, a product being finalized here may
+    // have been created by a *different* dry-run provider (Printify's
+    // publishProductToShopify — see automation/printify/dry-run-provider.ts)
+    // rather than by this provider's own publishProduct(). If nothing is on
+    // file yet, upsert a synthetic record instead of silently no-op'ing, so
+    // a later getProduct() can still echo back what finalizeExternalProduct
+    // was asked to set — same "no real network call, but internally
+    // consistent" contract every other dry-run provider gives.
+    // `nativelyPublished: true` marks records created this way so
+    // getProduct() can report a real multi-variant matrix instead of the
+    // single-variant echo publishProduct() records use — dry-run stands in
+    // for Printify's native integration, whose entire point is creating the
+    // full size/color variant matrix, not a lone "Default Title" variant.
     const existing = this.published.get(request.shopifyProductId);
-    if (existing !== undefined) {
-      this.published.set(request.shopifyProductId, {
-        ...existing,
-        tags: request.tags,
-        ...(request.seoTitle !== undefined ? { seoTitle: request.seoTitle } : {}),
-        ...(request.seoDescription !== undefined ? { seoDescription: request.seoDescription } : {}),
-        ...(request.collection !== undefined ? { collection: request.collection } : {}),
-      });
-    }
+    const base =
+      existing ??
+      {
+        jobId: request.jobId,
+        title: `Dry-run externally published product (${request.shopifyProductId})`,
+        descriptionHtml: "",
+        tags: [] as readonly string[],
+        productType: "T-Shirt",
+        priceUsd: 0,
+        imagePng: Buffer.alloc(0),
+        handle: slugify(request.shopifyProductId),
+        nativelyPublished: true,
+      };
+    this.published.set(request.shopifyProductId, {
+      ...base,
+      tags: request.tags,
+      ...(request.seoTitle !== undefined ? { seoTitle: request.seoTitle } : {}),
+      ...(request.seoDescription !== undefined ? { seoDescription: request.seoDescription } : {}),
+      ...(request.collection !== undefined ? { collection: request.collection } : {}),
+    });
 
     return ok({
       jobId: request.jobId,
