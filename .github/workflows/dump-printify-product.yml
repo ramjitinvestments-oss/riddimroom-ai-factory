@@ -1,0 +1,45 @@
+name: Dump Printify Product (Read-Only)
+
+# Diagnostic for error 8251 ("Variants do not match selected blueprint and
+# print provider"): two independent fix attempts against the update
+# endpoint (disable stale variants; cover disabled variants in print_areas
+# too) both still failed with the identical error on the same orphan
+# product. Rather than guess a third time, this dumps the product's full
+# raw JSON plus the blueprint's print-provider catalog so the actual
+# mismatch can be read directly. Read-only -- no writes, no confirmation
+# gate needed.
+on:
+  workflow_dispatch:
+    inputs:
+      printifyProductId:
+        description: 'The Printify product id to inspect.'
+        required: true
+        type: string
+
+jobs:
+  dump:
+    name: Dump product JSON and catalog print-provider info
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: package.json
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run dump
+        run: node --disable-warning=ExperimentalWarning --experimental-strip-types scripts/dump-printify-product.ts "${{ github.event.inputs.printifyProductId }}"
+        env:
+          PRINTIFY_API_KEY: ${{ secrets.PRINTIFY_API_KEY }}
+          PRINTIFY_SHOP_ID: ${{ secrets.PRINTIFY_SHOP_ID }}
+          PRINTIFY_BLUEPRINT_ID: ${{ secrets.PRINTIFY_BLUEPRINT_ID }}
+          PRINTIFY_PRINT_PROVIDER_ID: ${{ secrets.PRINTIFY_PRINT_PROVIDER_ID }}
