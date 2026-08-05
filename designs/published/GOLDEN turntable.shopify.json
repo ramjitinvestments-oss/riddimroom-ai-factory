@@ -1,0 +1,16 @@
+{
+  "jobId": "487a6337-a842-4dea-bf31-716ebcc30d45",
+  "shopifyProductId": "8684552781974",
+  "handle": "gold-turntable-riddimroom-t-shirt",
+  "liveUrl": "https://riddimroom.com/products/gold-turntable-riddimroom-t-shirt",
+  "status": "active",
+  "publishedAt": "2026-08-02T14:56:29.863Z",
+  "repair": {
+    "originalFailedChecks": ["seo"],
+    "rootCause": "createProduct() nested both SEO metafields in the single POST /products.json creation payload; Shopify silently persisted only description_tag, dropping title_tag with no error.",
+    "codeFix": "automation/shopify/shopify-provider.ts: SEO metafields are now set via a separate POST /products/{id}/metafields.json call per field, after product creation.",
+    "liveRepairMethod": "One-off Shopify Admin GraphQL metafieldsSet mutation on the existing product (gid://shopify/Product/8684552781974) — the existing product was updated, not recreated.",
+    "repairedAt": "2026-08-02T15:10:00.000Z",
+    "verifiedFieldsUnchanged": ["title", "descriptionHtml", "images", "price", "collection", "tags"]
+  }
+}

@@ -80,10 +80,26 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           # --- Optional overrides — safe to leave unset as GitHub secrets; the pipeline falls back
           #     to its own defaults (see .env.example) when these are blank. ---
-          PRINTIFY_PRINT_X: ${{ secrets.PRINTIFY_PRINT_X }}
-          PRINTIFY_PRINT_Y: ${{ secrets.PRINTIFY_PRINT_Y }}
-          PRINTIFY_PRINT_SCALE: ${{ secrets.PRINTIFY_PRINT_SCALE }}
+          # Placement below is set as a literal, not a secret, for this specific launch batch
+          # (the "Caribbean Dictionary Series" designs). Those PNGs are content-cropped to their
+          # own tall aspect ratio (~4500x5390, h/w ~1.19-1.20), not padded to the fixed 4500x5400
+          # canvas the PrintifyApiProvider defaults (0.5/0.35/0.85) were tuned against — using the
+          # secrets-sourced defaults here would clip roughly the top 8% of every one of these
+          # designs. y=0.4655/scale=0.88 is computed from this batch's own worst-case aspect ratio
+          # (see designs/processed/*.png dimensions) so the top edge sits ~3% below the print
+          # area's top with no clipping, matching the "raised as high as possible" placement
+          # standard already applied by hand to the first 5 live products. Revert these three
+          # lines back to secrets.PRINTIFY_PRINT_X/Y/SCALE refs once padded-canvas designs are
+          # launched again through this workflow.
+          PRINTIFY_PRINT_X: "0.5"
+          PRINTIFY_PRINT_Y: "0.4655"
+          PRINTIFY_PRINT_SCALE: "0.88"
           DEFAULT_SHIRT_PRICE: ${{ secrets.DEFAULT_SHIRT_PRICE }}
+          # Scopes this run to only the newly-imported batch — the original 4 reference products
+          # (GOLDEN turntable/crown/RR shirt 1/treasure chest) already have the manually-verified
+          # "Align top" placement live; re-running them through the PRINTIFY_PRINT_Y override above
+          # would overwrite that fix. See scripts/launch-apparel.ts's designStemsFromEnv().
+          LAUNCH_DESIGN_STEMS: "Big Up,Chipping,Irie,Liming,Pickney,Riddim,Soon Come,Watch Nah,Wgagwaan"
 
       - name: Summarize launch report
         if: always()

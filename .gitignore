@@ -70,9 +70,3 @@ Thumbs.db
 # --- Editor ---
 .vscode/
 .idea/
-
-# AI generated design outputs
-designs/approved/
-designs/processed/
-designs/published/
-designs/rejected/

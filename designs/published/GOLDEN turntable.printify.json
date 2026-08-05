@@ -1,0 +1,16 @@
+{
+  "jobId": "487a6337-a842-4dea-bf31-716ebcc30d45",
+  "printifyProductId": "6a72849db311fb819e07e3d0",
+  "printifyImageId": "PENDING_LOOKUP",
+  "_migrationNote": "printifyProductId was 6a6f59eb88613d70e4055237, created under the 'Riddimroom.com' Printify store slot, which was connected to a permanently dead Shopify store (qpsykx-wf.myshopify.com, 'This store is currently unavailable'). That connection could never sync. On 2026-08-04 a new Printify product (this id) was built from the same artwork under the correct, live-connected store slot ('My Shopify Store', linked to riddimroom.myshopify.com / 53y20t-ky.myshopify.com) and linked via Printify's External Products > Migrate flow to the existing live Shopify product (shopifyProductId 8684552781974, unchanged) with variant-level SKU mapping (S/M/L/XL/2XL). No duplicate Shopify product was created. printifyImageId was not captured during the manual browser-based fix and should be looked up via GET /v1/shops/{shop_id}/products/6a72849db311fb819e07e3d0.json (images[].id) next time this file is touched by a script. mockupUrls below were refreshed to the new product's actual mockup set (previously pointed at the dead product's now-orphaned images) but only the 4 mockups selected on the product (front, back, folded, front flat-lay) were captured manually -- a future scripted regenerate/sync run should repopulate the full mockup set the same way the old file had it.",
+  "mockupUrls": [
+    "https://images.printify.com/mockup/6a72849db311fb819e07e3d0/18102/102044/gold-turntable-riddimroom-t-shirt.jpg?camera_label=front",
+    "https://images.printify.com/mockup/6a72849db311fb819e07e3d0/18102/102045/gold-turntable-riddimroom-t-shirt.jpg?camera_label=back",
+    "https://images.printify.com/mockup/6a72849db311fb819e07e3d0/18102/102046/gold-turntable-riddimroom-t-shirt.jpg?camera_label=folded",
+    "https://images.printify.com/mockup/6a72849db311fb819e07e3d0/18102/102048/gold-turntable-riddimroom-t-shirt.jpg?camera_label=front-2"
+  ],
+  "priceUsd": 24.99,
+  "status": "uploaded",
+  "uploadedAt": "2026-08-02T14:53:42.308Z",
+  "migratedAt": "2026-08-04T00:00:00.000Z"
+}

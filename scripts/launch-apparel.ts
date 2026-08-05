@@ -214,9 +214,27 @@ function printReport(report: LaunchReport): void {
   }
 }
 
+/**
+ * Optional override for which design stems this run launches, so a batch
+ * of newly-imported designs can be launched without editing
+ * `LAUNCH_DESIGN_STEMS` (which stays the permanent default for the
+ * original 4 reference products). Comma-separated, e.g.
+ * `LAUNCH_DESIGN_STEMS="Big Up,Chipping,Irie"`. Unset means "use the
+ * default array" — existing behavior, unchanged.
+ */
+function designStemsFromEnv(env: NodeJS.ProcessEnv): readonly string[] | undefined {
+  const raw = env.LAUNCH_DESIGN_STEMS;
+  if (raw === undefined || raw.trim().length === 0) return undefined;
+  return raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
 async function main(): Promise<void> {
   loadEnv();
-  const report = await runLaunch();
+  const designStems = designStemsFromEnv(process.env);
+  const report = await runLaunch(designStems !== undefined ? { designStems } : {});
   printReport(report);
   if (!report.launched || !report.succeeded) {
     process.exitCode = 1;
