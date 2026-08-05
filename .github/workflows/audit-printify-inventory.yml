@@ -1,0 +1,43 @@
+name: Audit Printify Inventory (Read-Only)
+
+# Read-only infrastructure audit (2026-08-05) -- part of the full
+# Printify/Shopify architecture investigation. scripts/audit-printify-inventory.ts
+# only calls GET /v1/shops.json and GET /v1/shops/{id}/products.json; it
+# never creates, publishes, updates, or deletes anything. No confirmation
+# gate needed, same reasoning as diagnose-printify-shop.yml.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  audit:
+    name: Inventory every Printify shop and product
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: package.json
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run audit
+        run: npm run audit:printify-inventory
+        env:
+          PRINTIFY_API_KEY: ${{ secrets.PRINTIFY_API_KEY }}
+
+      - name: Upload inventory JSON
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: printify-inventory-${{ github.run_id }}
+          path: logs/
+          if-no-files-found: warn
+          retention-days: 90

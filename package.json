@@ -14,7 +14,8 @@
     "launch:apparel": "node --disable-warning=ExperimentalWarning --experimental-strip-types scripts/launch-apparel.ts",
     "lookup:black-variants": "node --disable-warning=ExperimentalWarning --experimental-strip-types scripts/lookup-black-variant-ids.ts",
     "repair:legacy-products": "node --disable-warning=ExperimentalWarning --experimental-strip-types scripts/repair-legacy-shopify-products.ts",
-    "diagnose:printify-shop": "node --disable-warning=ExperimentalWarning --experimental-strip-types scripts/diagnose-printify-shop.ts"
+    "diagnose:printify-shop": "node --disable-warning=ExperimentalWarning --experimental-strip-types scripts/diagnose-printify-shop.ts",
+    "audit:printify-inventory": "node --disable-warning=ExperimentalWarning --experimental-strip-types scripts/audit-printify-inventory.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
