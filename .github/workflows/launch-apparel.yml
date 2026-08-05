@@ -41,7 +41,16 @@ jobs:
 
     steps:
       - name: Verify confirmation input
-        if: ${{ github.event.inputs.confirm != 'LAUNCH' }}
+        # BUGFIX 2026-08-05: this previously ran unconditionally on every trigger.
+        # On a `push` event, `github.event.inputs` is null (only `workflow_dispatch`
+        # populates it), so the old `github.event.inputs.confirm != 'LAUNCH'` check
+        # evaluated `null != 'LAUNCH'` — always true — and aborted every push-triggered
+        # run before checkout, even though the `push` trigger was intentionally built
+        # to require no confirmation (see the `on:` block above). Confirmed via GitHub
+        # Actions run history: every prior run (workflow_dispatch AND push) failed at
+        # this exact step in ~5s, before a single Printify/Shopify call was made.
+        # Scoping the check to workflow_dispatch only restores the intended behavior.
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.confirm != 'LAUNCH' }}
         run: |
           echo "::error::Confirmation input did not match 'LAUNCH' — aborting before any production call."
           exit 1
